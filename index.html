@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#12172B" media="(prefers-color-scheme: dark)">
+  <meta name="robots" content="noindex">
+  <title>santo · control</title>
+  <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="cabecera">
+      <span class="logo">santo</span>
+      <span class="modo-demo" id="modo-demo" hidden>modo demo · datos de prueba</span>
+    </header>
+
+    <main id="vista" class="vista" tabindex="-1"></main>
+
+    <nav class="barra" aria-label="Secciones">
+      <div class="barra-in">
+        <a class="nav-item" data-ruta="hoy" href="#hoy">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="relleno" d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z"/><path class="hueco" d="M9.5 20.5V15h5v5.5"/></svg>
+          <span>Hoy</span>
+        </a>
+        <a class="nav-item" data-ruta="inventario" href="#inventario">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="relleno" d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path class="hueco" d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/></svg>
+          <span>Inventario</span>
+        </a>
+        <button type="button" class="nav-registrar" id="btn-registrar" aria-label="Registrar" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <a class="nav-item" data-ruta="recetas" href="#recetas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="relleno" d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12v-3"/><path class="hueco" d="M9 7.5h6M9 11h6"/></svg>
+          <span>Recetas</span>
+        </a>
+        <a class="nav-item" data-ruta="mas" href="#mas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="relleno" cx="5" cy="12" r="1.8"/><circle class="relleno" cx="12" cy="12" r="1.8"/><circle class="relleno" cx="19" cy="12" r="1.8"/></svg>
+          <span>Más</span>
+        </a>
+      </div>
+    </nav>
+  </div>
+
+  <div id="capa" class="capa" hidden></div>
+  <section id="hoja" class="hoja" role="dialog" aria-modal="true" aria-labelledby="hoja-titulo">
+    <button type="button" class="hoja-tirador" id="hoja-tirador" aria-label="Cerrar"><span></span></button>
+    <div id="hoja-cuerpo"></div>
+  </section>
+
+  <div id="avisos" class="avisos" aria-live="polite"></div>
+  <div id="ingreso" class="ingreso" hidden></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

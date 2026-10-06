@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <circle cx="48" cy="48" r="48" fill="#F5F3EF"/>
+  <circle cx="48" cy="48" r="39" fill="#EAE4D9"/>
+  <!-- sándwich de ciabatta visto desde arriba -->
+  <ellipse cx="48" cy="54" rx="31" ry="17" fill="#7F8A55"/>
+  <ellipse cx="48" cy="51" rx="30" ry="17" fill="#C98F4A"/>
+  <ellipse cx="48" cy="49" rx="25" ry="13" fill="#E3B26A"/>
+  <g stroke="#C98F4A" stroke-width="3" stroke-linecap="round">
+    <path d="M33 45 39 53M45 42 51 54M57 43 63 52"/>
+  </g>
+  <g fill="#F5F3EF">
+    <circle cx="40" cy="44" r="1.2"/>
+    <circle cx="54" cy="56" r="1.2"/>
+    <circle cx="61" cy="46" r="1.2"/>
+    <circle cx="35" cy="55" r="1.2"/>
+  </g>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <circle cx="48" cy="48" r="48" fill="#F5F3EF"/>
+  <!-- boleta y monedas vistas desde arriba -->
+  <path d="M28 18h34v58l-4-3-4 3-4-3-4 3-4-3-4 3-4-3-6 3z" fill="#FFFFFF"/>
+  <g fill="#C9BBA8">
+    <rect x="34" y="28" width="22" height="3" rx="1.5"/>
+    <rect x="34" y="36" width="16" height="3" rx="1.5"/>
+    <rect x="34" y="44" width="20" height="3" rx="1.5"/>
+    <rect x="34" y="52" width="12" height="3" rx="1.5"/>
+  </g>
+  <rect x="34" y="62" width="22" height="4" rx="2" fill="#4A3B47"/>
+  <circle cx="66" cy="62" r="11" fill="#D9A23F"/>
+  <circle cx="66" cy="62" r="8" fill="#F4C15D"/>
+  <circle cx="70" cy="48" r="9" fill="#D9A23F"/>
+  <circle cx="70" cy="48" r="6.5" fill="#F4C15D"/>
+</svg>

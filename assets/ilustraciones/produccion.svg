@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <circle cx="48" cy="48" r="48" fill="#F5F3EF"/>
+  <!-- olla vista desde arriba con guiso -->
+  <rect x="10" y="44" width="14" height="8" rx="4" fill="#5A6275"/>
+  <rect x="72" y="44" width="14" height="8" rx="4" fill="#5A6275"/>
+  <circle cx="48" cy="48" r="30" fill="#5A6275"/>
+  <circle cx="48" cy="48" r="25" fill="#3E4558"/>
+  <circle cx="48" cy="48" r="22" fill="#B5603F"/>
+  <g fill="#8E4430">
+    <rect x="36" y="38" width="9" height="7" rx="2" transform="rotate(-15 40 41)"/>
+    <rect x="51" y="50" width="9" height="7" rx="2" transform="rotate(20 55 53)"/>
+    <rect x="38" y="53" width="8" height="6" rx="2" transform="rotate(10 42 56)"/>
+  </g>
+  <circle cx="56" cy="39" r="3.5" fill="#F4C15D"/>
+  <ellipse cx="48" cy="47" rx="3" ry="1.4" transform="rotate(30 48 47)" fill="#7F8A55"/>
+  <ellipse cx="60" cy="60" rx="3" ry="1.4" transform="rotate(-30 60 60)" fill="#7F8A55"/>
+</svg>
