@@ -9,6 +9,7 @@
     constructor(nombre) { this.nombre = nombre; this.datos = []; this.max = 1000; }
     getMaxRows() { return this.max; }
     insertRowsAfter(fila, n) { this.max += n; }
+    getLastColumn() { return Math.max(0, ...this.datos.map((f) => f.length)); }
     getLastRow() {
       for (let i = this.datos.length - 1; i >= 0; i--) {
         if (this.datos[i].some((v) => v !== '' && v != null)) return i + 1;

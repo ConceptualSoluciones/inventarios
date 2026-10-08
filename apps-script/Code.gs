@@ -140,6 +140,7 @@ function doPost(e) {
   }
   try {
     validarPin(pedido.pin);
+    asegurarHojas();
     const accion = ACCIONES[pedido.action];
     if (!accion) throw new ErrorApp('Acción desconocida: ' + pedido.action, 'accion');
     const ctx = { usuario: String(pedido.usuario || '').trim().slice(0, 40) || 'sin nombre' };
@@ -149,6 +150,22 @@ function doPost(e) {
     console.error(err && err.stack ? err.stack : err);
     return responder({ ok: false, error: 'Error en el servidor: ' + (err && err.message), code: 'servidor' });
   }
+}
+
+// Deja el Sheet listo sin tener que ejecutar nada a mano:
+//   - si es un Sheet nuevo (faltan hojas), corre setup();
+//   - si todavía es la versión en gramos (Insumos sin "medicion"), borra esos datos de prueba y carga la semilla.
+// Cualquier otra diferencia de columnas no se toca: se avisa, para no borrar datos reales.
+function asegurarHojas() {
+  const libro = SpreadsheetApp.getActive();
+  const insumos = libro.getSheetByName('Insumos');
+  const cab = insumos && insumos.getLastColumn() > 0
+    ? insumos.getRange(1, 1, 1, insumos.getLastColumn()).getValues()[0].map(String) : [];
+  if (cab.length && cab.indexOf('medicion') < 0) {
+    conBloqueo(() => empezarDeCero());
+    return;
+  }
+  if (Object.keys(HOJAS).some((n) => !libro.getSheetByName(n))) conBloqueo(() => setup());
 }
 
 // Abrir la URL en el navegador sirve para comprobar que está publicado.
