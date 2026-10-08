@@ -8,33 +8,42 @@
  *
  * Antes de usarlo:
  *   1. Ejecutar setup() una vez desde el editor (crea las hojas y carga Semilla.gs).
+ *      Para borrar todo y volver a la semilla: empezarDeCero().
  *   2. En Configuración del proyecto › Propiedades de la secuencia de comandos, agregar PIN.
+ *      Para Telegram, además TELEGRAM_TOKEN y TELEGRAM_CHAT_ID.
  *
- * Cómo se mueve el stock (siempre a través de Movimientos, nunca a mano):
- *   - Producción  → movimientos "entrada" (lo que entra o se compra).
- *   - Ventas      → movimientos "venta" (cada pan descuenta su receta; cada bebida se descuenta sola).
- *   - Ajuste      → corrige el stock con una diferencia (+ o −).
+ * Tres formas de medir (columna medicion):
+ *   - conteo: porciones o unidades. Tiene stock, que se mueve siempre a través de Movimientos:
+ *       Producción → "entrada" · Ventas → "venta" (según la receta) · Merma → "merma" · Ajuste → diferencia (+ o −).
+ *   - nivel:  salsas (lleno · medio · poco · vacío). Solo guarda su estado; cada cambio es un movimiento "nivel".
+ *   - marcar: hay · falta. Solo guarda su estado; cada cambio es un movimiento "marca".
  */
 
 const TZ = 'America/Lima';
 
 const HOJAS = {
-  Insumos: ['id', 'nombre', 'categoria', 'tipo', 'unidad_base', 'porcion_g', 'stock_actual', 'stock_minimo', 'proveedor', 'activo'],
+  Insumos: ['id', 'nombre', 'categoria', 'tipo', 'medicion', 'unidad_base', 'gramaje_ref', 'stock_actual', 'stock_minimo',
+    'estado_actual', 'lote_insumo_id', 'lote_cantidad', 'proveedor', 'activo'],
   Movimientos: ['id', 'fecha', 'hora', 'insumo_id', 'tipo', 'cantidad', 'origen', 'nota', 'usuario'],
   Recetas: ['id', 'nombre', 'grupo', 'estado', 'activa', 'notas'],
   RecetaIngredientes: ['receta_id', 'insumo_id', 'cantidad'],
-  VentasDia: ['fecha', 'item_tipo', 'item_id', 'cantidad', 'actualizado_por', 'actualizado_en']
+  VentasDia: ['fecha', 'item_tipo', 'item_id', 'cantidad', 'actualizado_por', 'actualizado_en'],
+  Cierres: ['fecha', 'insumo_id', 'queda', 'actualizado_en']
 };
 
 // Columnas que se guardan como texto plano (y su formato al leerlas si Sheets las convirtió en fecha).
 const FORMATO_TEXTO = { fecha: 'yyyy-MM-dd', hora: 'HH:mm', actualizado_en: 'yyyy-MM-dd HH:mm' };
 
-const UNIDADES = ['unidad', 'porción', 'g', 'ml'];
+const MEDICIONES = ['conteo', 'nivel', 'marcar'];
+const ESTADOS = { nivel: ['lleno', 'medio', 'poco', 'vacío'], marcar: ['hay', 'falta'] };
+const ESTADO_INICIAL = { nivel: 'lleno', marcar: 'hay' };
+const ESTADOS_ALERTA = ['poco', 'vacío', 'falta'];
+const UNIDADES = ['porción', 'unidad'];
 const TIPOS = ['ingrediente', 'bebida']; // las bebidas se venden directo, sin receta
 const GRUPOS_RECETA = ['cultos', 'criollos', 'papas'];
 const ESTADOS_RECETA = ['vigente', 'provisional', 'sin_ficha'];
 
-// Cómo suma cada tipo de movimiento al stock. "ajuste" ya viene con su signo (+ o −).
+// Cómo suma cada tipo de movimiento al stock. "ajuste" ya viene con su signo (+ o −). "nivel" y "marca" no suman.
 const SIGNO_MOVIMIENTO = { entrada: 1, salida: -1, merma: -1, venta: -1, ajuste: 1 };
 
 // ---------------------------------------------------------------------------
@@ -54,7 +63,7 @@ function setup() {
       const actual = sh.getRange(1, 1, 1, cab.length).getValues()[0].map(String);
       if (actual.join('|') !== cab.join('|')) {
         throw new Error('La hoja "' + nombre + '" tiene columnas de una versión anterior. ' +
-          'Bórrala (clic derecho en la pestaña → Borrar) y vuelve a ejecutar setup().');
+          'Ejecuta empezarDeCero() para borrar todo y cargar los datos iniciales.');
       }
     }
     sh.getRange(1, 1, 1, cab.length).setValues([cab]).setFontWeight('bold');
@@ -76,6 +85,19 @@ function setup() {
   console.log('Listo: hojas creadas y datos iniciales cargados.');
 }
 
+// Borra TODOS los datos de la app (casillas, movimientos, recetas, ventas y cierres) y vuelve a cargar la semilla.
+// No se puede deshacer. Solo se ejecuta a mano desde el editor de Apps Script.
+function empezarDeCero() {
+  const libro = SpreadsheetApp.getActive();
+  Object.keys(HOJAS).forEach((nombre) => {
+    const sh = libro.getSheetByName(nombre);
+    if (sh) sh.clear();
+  });
+  const props = PropertiesService.getScriptProperties();
+  Object.keys(props.getProperties()).forEach((k) => { if (k.indexOf('alerta:') === 0) props.deleteProperty(k); });
+  setup();
+}
+
 // ---------------------------------------------------------------------------
 // Entrada web
 // ---------------------------------------------------------------------------
@@ -89,9 +111,19 @@ class ErrorApp extends Error {
 
 const ACCIONES = {
   verificarPin: () => ({ ok: true }),
+  cargarHoy: cargarHoy,
+  cambiarEstado: cambiarEstado,
+  anotarControl: anotarControl,
+  hiceUnLote: hiceUnLote,
   cargarInventario: cargarInventario,
   crearInsumo: crearInsumo,
   registrarEntradas: registrarEntradas,
+  guardarRevision: guardarRevision,
+  cargarMovimientos: cargarMovimientos,
+  guardarMinimos: guardarMinimos,
+  ajustarStock: ajustarStock,
+  guardarLote: guardarLote,
+  cambiarMedicion: cambiarMedicion,
   cargarRecetas: cargarRecetas,
   crearReceta: crearReceta,
   guardarReceta: guardarReceta,
@@ -135,6 +167,187 @@ function validarPin(pin) {
 }
 
 // ---------------------------------------------------------------------------
+// Hoy: control del día de las proteínas, salsas por nivel e ingredientes Hay / Falta
+// ---------------------------------------------------------------------------
+
+// Las proteínas llevan control del día (inicial + producido − vendido − merma = queda) y un cierre por día.
+function conControl(i) { return i.medicion === 'conteo' && i.categoria === 'Proteínas'; }
+
+function cargarHoy(d) {
+  const fecha = validarFecha(d.fecha || hoyLima());
+  const insumos = insumosActivos();
+  const cierres = leerTabla('Cierres');
+  const movs = movimientosDeFecha(fecha);
+  const control = insumos.filter(conControl).map((i) => {
+    const c = cuentasDelDia(movs, i.id);
+    const inicial = inicialDelDia(cierres, i.id, fecha);
+    return {
+      insumo_id: i.id, inicial: inicial, producido: c.producido, vendido: c.vendido, merma: c.merma,
+      ajuste: c.ajuste, queda: redondear(inicial + c.total)
+    };
+  });
+  return { fecha: fecha, insumos: insumos, control: control };
+}
+
+// Lo producido y la merma de una proteína en una fecha. Se suman a lo que ya había ese día.
+function anotarControl(d, ctx) {
+  const fecha = validarFecha(d.fecha);
+  const producido = vacio(d.producido) ? 0 : validarNumero(d.producido, 'lo producido');
+  const merma = vacio(d.merma) ? 0 : validarNumero(d.merma, 'la merma');
+  if (!producido && !merma) throw new ErrorApp('Escribe lo producido o la merma.', 'datos');
+
+  return conBloqueo(() => {
+    const i = insumosActivos().find((x) => x.id === String(d.insumo_id || ''));
+    if (!i || !conControl(i)) throw new ErrorApp('No se encontró esa proteína. Recarga la página.', 'datos');
+    const hora = horaLima();
+    const mov = (tipo, cantidad) => ({
+      id: nuevoId('mov'), fecha: fecha, hora: hora, insumo_id: i.id, tipo: tipo,
+      cantidad: cantidad, origen: 'manual', nota: '', usuario: ctx.usuario
+    });
+    agregarFilas('Movimientos', sinVacios([producido > 0 && mov('entrada', producido), merma > 0 && mov('merma', merma)]));
+    recalcularStocks();
+    const posteriores = actualizarCierres(fecha, [i.id]);
+    return Object.assign(cargarHoy({ fecha: fecha }), { posteriores: posteriores });
+  });
+}
+
+// Salsas (nivel) e ingredientes (marcar): se guarda al momento, con quién y a qué hora.
+function cambiarEstado(d, ctx) {
+  return conBloqueo(() => {
+    aplicarEstados([{ insumo_id: d.insumo_id, estado: d.estado }], ctx);
+    return { insumo: insumosActivos().find((i) => i.id === String(d.insumo_id)) };
+  });
+}
+
+// Cambia el estado de varias casillas (sin bloqueo: lo pone quien llama). Devuelve cuántas cambiaron.
+function aplicarEstados(lista, ctx) {
+  if (!lista.length) return 0;
+  const porId = {};
+  leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
+  const sh = hoja('Insumos');
+  const col = HOJAS.Insumos.indexOf('estado_actual') + 1;
+  const fecha = hoyLima();
+  const hora = horaLima();
+  const movs = [];
+  const alertas = [];
+  lista.forEach((c) => {
+    const i = porId[String(c.insumo_id || '')];
+    if (!i || !activo(i.activo)) throw new ErrorApp('No se encontró una de las casillas. Recarga la página.', 'datos');
+    const estado = String(c.estado || '').trim().toLowerCase();
+    const validos = ESTADOS[i.medicion];
+    if (!validos || validos.indexOf(estado) < 0) throw new ErrorApp('Estado inválido para ' + i.nombre + '.', 'datos');
+    if (i.estado_actual === estado) return;
+    sh.getRange(i._fila, col).setValue(estado);
+    i.estado_actual = estado;
+    movs.push({
+      id: nuevoId('mov'), fecha: fecha, hora: hora, insumo_id: i.id, tipo: i.medicion === 'nivel' ? 'nivel' : 'marca',
+      cantidad: '', origen: 'manual', nota: estado, usuario: ctx.usuario
+    });
+    if (ESTADOS_ALERTA.indexOf(estado) >= 0) {
+      const quien = ' (marcó ' + ctx.usuario + ', ' + hora + ')';
+      alertas.push({ id: i.id, texto: (estado === 'falta' ? 'Falta ' + i.nombre : i.nombre + ' está en ' + capital(estado)) + quien });
+    }
+  });
+  agregarFilas('Movimientos', movs);
+  alertar(alertas);
+  return movs.length;
+}
+
+// Glaseado Bravo: un lote nuevo descuenta lo que lleva (la chicha) y deja la salsa en "lleno".
+function hiceUnLote(d, ctx) {
+  return conBloqueo(() => {
+    const insumos = insumosActivos();
+    const i = insumos.find((x) => x.id === String(d.insumo_id || ''));
+    if (!i || i.medicion !== 'nivel') throw new ErrorApp('No se encontró esa salsa. Recarga la página.', 'datos');
+    const destino = insumos.find((x) => x.id === i.lote_insumo_id && x.medicion === 'conteo');
+    const cantidad = num(i.lote_cantidad);
+    let descontado = null;
+    if (destino && cantidad > 0) {
+      agregarFilas('Movimientos', [{
+        id: nuevoId('mov'), fecha: hoyLima(), hora: horaLima(), insumo_id: destino.id, tipo: 'salida',
+        cantidad: cantidad, origen: 'lote:' + i.id, nota: 'Lote de ' + i.nombre, usuario: ctx.usuario
+      }]);
+      recalcularStocks();
+      actualizarCierres(hoyLima(), [destino.id]);
+      descontado = { insumo_id: destino.id, nombre: destino.nombre, cantidad: cantidad, unidad_base: destino.unidad_base };
+    }
+    aplicarEstados([{ insumo_id: i.id, estado: 'lleno' }], ctx);
+    return { insumo: insumosActivos().find((x) => x.id === i.id), descontado: descontado, sinLote: !descontado };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cierres: lo que quedó de cada proteína al final de cada día
+// ---------------------------------------------------------------------------
+
+// El inicial de un día es el último cierre anterior (o 0 si no hay ninguno).
+function inicialDelDia(cierres, insumoId, fecha) {
+  let mejor = null;
+  cierres.forEach((c) => {
+    if (c.insumo_id === insumoId && c.fecha < fecha && (!mejor || c.fecha > mejor.fecha)) mejor = c;
+  });
+  return mejor ? num(mejor.queda) : 0;
+}
+
+function cuentasDelDia(movs, insumoId) {
+  const c = { producido: 0, vendido: 0, merma: 0, ajuste: 0, total: 0 };
+  movs.forEach((m) => {
+    if (m.insumo_id !== insumoId) return;
+    const v = valorMovimiento(m);
+    if (m.tipo === 'entrada') c.producido += v;
+    else if (m.tipo === 'venta') c.vendido -= v;
+    else if (m.tipo === 'merma') c.merma -= v;
+    else c.ajuste += v; // ajustes y salidas
+    c.total += v;
+  });
+  Object.keys(c).forEach((k) => { c[k] = redondear(c[k]); });
+  return c;
+}
+
+// Rehace el cierre de esa fecha para las proteínas tocadas. Los días siguientes no se rehacen:
+// devuelve true si alguno ya tenía cierre, porque desde ahí los números pueden no cuadrar.
+function actualizarCierres(fecha, ids) {
+  const proteinas = {};
+  insumosActivos().filter(conControl).forEach((i) => { proteinas[i.id] = true; });
+  const tocadas = ids.filter((id, k) => proteinas[id] && ids.indexOf(id) === k);
+  if (!tocadas.length) return false;
+
+  const cierres = leerTabla('Cierres');
+  const movs = movimientosDeFecha(fecha);
+  const sh = hoja('Cierres');
+  const ahora = ahoraLima();
+  const nuevos = [];
+  let posteriores = false;
+  tocadas.forEach((id) => {
+    const cierre = {
+      fecha: fecha, insumo_id: id, actualizado_en: ahora,
+      queda: redondear(inicialDelDia(cierres, id, fecha) + cuentasDelDia(movs, id).total)
+    };
+    const fila = cierres.find((c) => c.fecha === fecha && c.insumo_id === id);
+    if (fila) sh.getRange(fila._fila, 1, 1, HOJAS.Cierres.length).setValues([aFila('Cierres', cierre)]);
+    else nuevos.push(cierre);
+    if (cierres.some((c) => c.insumo_id === id && c.fecha > fecha)) posteriores = true;
+  });
+  agregarFilas('Cierres', nuevos);
+  return posteriores;
+}
+
+// Solo los movimientos de una fecha: lee la columna de fechas y después únicamente el bloque de filas de ese día.
+function movimientosDeFecha(fecha) {
+  const sh = hoja('Movimientos');
+  const ultima = sh.getLastRow();
+  if (ultima < 2) return [];
+  const cab = HOJAS.Movimientos;
+  const fechas = sh.getRange(2, cab.indexOf('fecha') + 1, ultima - 1, 1).getValues().map((r) => normalizar('fecha', r[0]));
+  const desde = fechas.indexOf(fecha);
+  if (desde < 0) return [];
+  const hasta = fechas.lastIndexOf(fecha);
+  return sh.getRange(desde + 2, 1, hasta - desde + 1, cab.length).getValues()
+    .map((r, k) => aObjeto(cab, r, desde + 2 + k))
+    .filter((m) => m.fecha === fecha);
+}
+
+// ---------------------------------------------------------------------------
 // Inventario
 // ---------------------------------------------------------------------------
 
@@ -149,21 +362,23 @@ function crearInsumo(d, ctx) {
 function crearInsumoSinBloqueo(d, ctx) {
   const nombre = String(d.nombre || '').trim().slice(0, 40);
   if (!nombre) throw new ErrorApp('Falta el nombre.', 'datos');
-  const unidad = UNIDADES.indexOf(d.unidad_base) >= 0 ? d.unidad_base : 'unidad';
-  const tipo = TIPOS.indexOf(d.tipo) >= 0 ? d.tipo : 'ingrediente';
+  const medicion = MEDICIONES.indexOf(d.medicion) >= 0 ? d.medicion : 'conteo';
+  const conteo = medicion === 'conteo';
+  const tipo = conteo && TIPOS.indexOf(d.tipo) >= 0 ? d.tipo : 'ingrediente';
+  const unidad = !conteo ? '' : UNIDADES.indexOf(d.unidad_base) >= 0 ? d.unidad_base : 'unidad';
   const categoria = String(d.categoria || '').trim().slice(0, 30) || (tipo === 'bebida' ? 'Bebidas' : 'Otros');
-  const porcion = vacio(d.porcion_g) ? 0 : validarNumero(d.porcion_g, 'la porción');
-  const stock = vacio(d.stock_actual) ? 0 : validarNumero(d.stock_actual, 'la cantidad');
-  const minimo = vacio(d.stock_minimo) ? 0 : validarNumero(d.stock_minimo, 'el mínimo');
+  const stock = !conteo || vacio(d.stock_actual) ? 0 : validarNumero(d.stock_actual, 'la cantidad');
+  const minimo = !conteo || vacio(d.stock_minimo) ? 0 : validarNumero(d.stock_minimo, 'el mínimo');
   if (leerTabla('Insumos').some((i) => mismoNombre(i.nombre, nombre))) {
     throw new ErrorApp('Ya existe una casilla llamada ' + nombre + '.', 'datos');
   }
 
   const id = nuevoId('ins');
   agregarFilas('Insumos', [{
-    id: id, nombre: nombre, categoria: categoria, tipo: tipo, unidad_base: unidad,
-    porcion_g: unidad === 'g' && porcion > 0 ? porcion : '',
-    stock_actual: 0, stock_minimo: minimo, proveedor: String(d.proveedor || ''), activo: true
+    id: id, nombre: nombre, categoria: categoria, tipo: tipo, medicion: medicion, unidad_base: unidad,
+    gramaje_ref: String(d.gramaje_ref || '').trim().slice(0, 40),
+    stock_actual: conteo ? 0 : '', stock_minimo: conteo ? minimo : '', estado_actual: ESTADO_INICIAL[medicion] || '',
+    lote_insumo_id: '', lote_cantidad: '', proveedor: String(d.proveedor || ''), activo: true
   }]);
   // El stock nunca se escribe directo: lo que ya hay entra como un ajuste.
   if (stock > 0) {
@@ -171,12 +386,13 @@ function crearInsumoSinBloqueo(d, ctx) {
       id: nuevoId('mov'), fecha: hoyLima(), hora: horaLima(), insumo_id: id, tipo: 'ajuste',
       cantidad: stock, origen: 'manual', nota: 'Stock inicial', usuario: ctx.usuario
     }]);
+    recalcularStocks();
+    actualizarCierres(hoyLima(), [id]);
   }
-  recalcularStocks();
   return insumosActivos().find((i) => i.id === id);
 }
 
-// Producción: lo que entra o se compra. Suma al inventario.
+// Producción: lo que entra o se compra. Suma al inventario (solo casillas de conteo).
 function registrarEntradas(d, ctx) {
   const entradas = (Array.isArray(d.entradas) ? d.entradas : [])
     .map((e) => ({ insumo_id: String(e.insumo_id || ''), cantidad: validarNumero(e.cantidad, 'la cantidad') }))
@@ -185,7 +401,7 @@ function registrarEntradas(d, ctx) {
   const nota = String(d.nota || '').slice(0, 200);
 
   return conBloqueo(() => {
-    const ids = insumosActivos().map((i) => i.id);
+    const ids = insumosActivos().filter((i) => i.medicion === 'conteo').map((i) => i.id);
     entradas.forEach((e) => {
       if (ids.indexOf(e.insumo_id) < 0) throw new ErrorApp('No se encontró una de las casillas. Recarga la página.', 'datos');
     });
@@ -196,38 +412,257 @@ function registrarEntradas(d, ctx) {
       cantidad: e.cantidad, origen: 'manual', nota: nota, usuario: ctx.usuario
     })));
     recalcularStocks();
+    actualizarCierres(fecha, entradas.map((e) => e.insumo_id));
     return { guardadas: entradas.length, insumos: insumosActivos() };
   });
 }
 
-function insumosActivos() {
-  return leerTabla('Insumos').filter((i) => activo(i.activo)).map((i) => ({
-    id: i.id, nombre: i.nombre, categoria: i.categoria || 'Otros', tipo: i.tipo || 'ingrediente',
-    unidad_base: i.unidad_base, porcion_g: num(i.porcion_g),
-    stock_actual: num(i.stock_actual), stock_minimo: num(i.stock_minimo), proveedor: i.proveedor
-  }));
+// Revisión inicial: lo que hay de cada casilla de conteo (entra como ajuste) y el estado real de salsas e ingredientes.
+function guardarRevision(d, ctx) {
+  const conteos = (Array.isArray(d.conteos) ? d.conteos : [])
+    .map((c) => ({ insumo_id: String(c.insumo_id || ''), cantidad: validarNumero(c.cantidad, 'la cantidad') }));
+  const estados = Array.isArray(d.estados) ? d.estados : [];
+  if (!conteos.length && !estados.length) throw new ErrorApp('No hay cambios para guardar.', 'datos');
+
+  return conBloqueo(() => {
+    const porId = {};
+    insumosActivos().forEach((i) => { porId[i.id] = i; });
+    const fecha = hoyLima();
+    const hora = horaLima();
+    const ajustes = [];
+    conteos.forEach((c) => {
+      const i = porId[c.insumo_id];
+      if (!i || i.medicion !== 'conteo') throw new ErrorApp('No se encontró una de las casillas. Recarga la página.', 'datos');
+      const diferencia = redondear(c.cantidad - i.stock_actual);
+      if (!diferencia) return;
+      ajustes.push({
+        id: nuevoId('mov'), fecha: fecha, hora: hora, insumo_id: i.id, tipo: 'ajuste',
+        cantidad: diferencia, origen: 'manual', nota: 'Revisión inicial', usuario: ctx.usuario
+      });
+    });
+    agregarFilas('Movimientos', ajustes);
+    const cambios = aplicarEstados(estados, ctx);
+    if (ajustes.length) {
+      recalcularStocks();
+      actualizarCierres(fecha, ajustes.map((a) => a.insumo_id));
+    }
+    return { ajustes: ajustes.length, estados: cambios, insumos: insumosActivos() };
+  });
 }
 
-// stock_actual de cada insumo = suma de todos sus movimientos. Se escribe la columna entera de una vez.
+function insumosActivos() {
+  return leerTabla('Insumos').filter((i) => activo(i.activo)).map((i) => {
+    const medicion = MEDICIONES.indexOf(i.medicion) >= 0 ? i.medicion : 'conteo';
+    return {
+      id: i.id, nombre: i.nombre, categoria: i.categoria || 'Otros', tipo: i.tipo || 'ingrediente',
+      medicion: medicion, unidad_base: i.unidad_base, gramaje_ref: String(i.gramaje_ref || ''),
+      stock_actual: num(i.stock_actual), stock_minimo: num(i.stock_minimo),
+      estado_actual: medicion === 'conteo' ? '' : String(i.estado_actual || ESTADO_INICIAL[medicion]),
+      lote_insumo_id: i.lote_insumo_id, lote_cantidad: vacio(i.lote_cantidad) ? '' : num(i.lote_cantidad),
+      proveedor: i.proveedor
+    };
+  });
+}
+
+function valorMovimiento(m) {
+  const signo = SIGNO_MOVIMIENTO[m.tipo] || 0;
+  return m.tipo === 'ajuste' ? num(m.cantidad) : signo * Math.abs(num(m.cantidad));
+}
+
+// stock_actual de cada casilla de conteo = suma de todos sus movimientos. Se escribe la columna entera de una vez.
+// Las de nivel y marcar no tienen stock. Al final avisa por Telegram de lo que quedó bajo el mínimo.
 function recalcularStocks() {
   const totales = {};
   leerTabla('Movimientos').forEach((m) => {
-    const signo = SIGNO_MOVIMIENTO[m.tipo] || 0;
-    const valor = m.tipo === 'ajuste' ? num(m.cantidad) : signo * Math.abs(num(m.cantidad));
-    totales[m.insumo_id] = (totales[m.insumo_id] || 0) + valor;
+    totales[m.insumo_id] = (totales[m.insumo_id] || 0) + valorMovimiento(m);
   });
   const insumos = leerTabla('Insumos');
   if (!insumos.length) return;
+  const stock = (i) => (i.medicion === 'nivel' || i.medicion === 'marcar' ? '' : redondear(totales[i.id] || 0));
   const col = HOJAS.Insumos.indexOf('stock_actual') + 1;
   const sh = hoja('Insumos');
   // Las filas de leerTabla pueden tener huecos; se escribe fila por fila solo si hay huecos.
   const contiguas = insumos.every((i, k) => i._fila === k + 2);
   if (contiguas) {
-    sh.getRange(2, col, insumos.length, 1).setValues(insumos.map((i) => [redondear(totales[i.id] || 0)]));
+    sh.getRange(2, col, insumos.length, 1).setValues(insumos.map((i) => [stock(i)]));
   } else {
-    insumos.forEach((i) => sh.getRange(i._fila, col).setValue(redondear(totales[i.id] || 0)));
+    insumos.forEach((i) => sh.getRange(i._fila, col).setValue(stock(i)));
   }
-  // Fase 6: aquí se avisa por Telegram de los insumos que quedaron bajo el mínimo.
+
+  alertar(insumos
+    .filter((i) => activo(i.activo) && stock(i) !== '' && num(i.stock_minimo) > 0 && stock(i) < num(i.stock_minimo))
+    .map((i) => ({
+      id: i.id,
+      texto: 'Comprar ' + i.nombre + ': quedan ' + stock(i) + ' ' + unidadTexto(i.unidad_base, stock(i)) +
+        ' (mínimo ' + num(i.stock_minimo) + ')'
+    })));
+}
+
+// ---------------------------------------------------------------------------
+// Movimientos (historial) y Ajustes
+// ---------------------------------------------------------------------------
+
+const MAX_HISTORIAL = 200;
+
+// Historial de un día (solo lee las filas de ese día) o, sin fecha, todo el de una casilla. Lo más nuevo primero.
+function cargarMovimientos(d) {
+  const insumoId = String(d.insumo_id || '');
+  let movs;
+  if (!vacio(d.fecha)) movs = movimientosDeFecha(validarFecha(d.fecha));
+  else if (insumoId) movs = leerTabla('Movimientos');
+  else throw new ErrorApp('Elige un día o una casilla.', 'datos');
+  if (insumoId) movs = movs.filter((m) => m.insumo_id === insumoId);
+  // Dentro del mismo minuto se respeta el orden en que se anotaron (al revés: lo último primero).
+  movs.reverse().sort((a, b) => (b.fecha + ' ' + b.hora).localeCompare(a.fecha + ' ' + a.hora));
+
+  // Nombres también de casillas desactivadas, para que el historial no quede con ids sueltos.
+  const casillas = {};
+  leerTabla('Insumos').forEach((i) => { casillas[i.id] = i; });
+  return {
+    total: movs.length,
+    movimientos: movs.slice(0, MAX_HISTORIAL).map((m) => {
+      const i = casillas[m.insumo_id] || {};
+      return {
+        id: m.id, fecha: m.fecha, hora: m.hora, insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id,
+        unidad_base: i.unidad_base || '', tipo: m.tipo, cantidad: vacio(m.cantidad) ? '' : valorMovimiento(m),
+        origen: m.origen, nota: m.nota, usuario: m.usuario
+      };
+    }),
+    insumos: insumosActivos()
+  };
+}
+
+// Mínimos de las casillas de conteo. Vacío o 0 = sin mínimo.
+function guardarMinimos(d) {
+  const lista = (Array.isArray(d.minimos) ? d.minimos : []).map((m) => ({
+    insumo_id: String(m.insumo_id || ''),
+    minimo: vacio(m.minimo) ? 0 : validarNumero(m.minimo, 'el mínimo')
+  }));
+  if (!lista.length) throw new ErrorApp('No hay cambios para guardar.', 'datos');
+  return conBloqueo(() => {
+    const porId = {};
+    leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
+    lista.forEach((m) => {
+      const i = porId[m.insumo_id];
+      if (!i || !activo(i.activo) || i.medicion !== 'conteo') throw new ErrorApp('No se encontró una de las casillas. Recarga la página.', 'datos');
+      ponerCampos(i._fila, { stock_minimo: m.minimo });
+    });
+    recalcularStocks(); // si algo quedó bajo su nuevo mínimo, avisa
+    return { guardados: lista.length, insumos: insumosActivos() };
+  });
+}
+
+// Ajuste de stock contado: entra la diferencia entre lo contado y lo que dice el sistema.
+function ajustarStock(d, ctx) {
+  const cantidad = validarNumero(d.cantidad, 'lo contado');
+  const nota = String(d.nota || '').trim().slice(0, 200) || 'Conteo';
+  return conBloqueo(() => {
+    const i = insumosActivos().find((x) => x.id === String(d.insumo_id || ''));
+    if (!i || i.medicion !== 'conteo') throw new ErrorApp('Elige una casilla que se cuente.', 'datos');
+    const diferencia = redondear(cantidad - i.stock_actual);
+    if (diferencia) {
+      const fecha = hoyLima();
+      agregarFilas('Movimientos', [{
+        id: nuevoId('mov'), fecha: fecha, hora: horaLima(), insumo_id: i.id, tipo: 'ajuste',
+        cantidad: diferencia, origen: 'manual', nota: nota, usuario: ctx.usuario
+      }]);
+      recalcularStocks();
+      actualizarCierres(fecha, [i.id]);
+    }
+    return { diferencia: diferencia, insumos: insumosActivos() };
+  });
+}
+
+// Unidades que descuenta "Hice un lote" (por ahora, la chicha del Glaseado). Vacío o 0 = no descuenta.
+function guardarLote(d) {
+  const cantidad = vacio(d.lote_cantidad) ? 0 : validarNumero(d.lote_cantidad, 'las unidades por lote');
+  return conBloqueo(() => {
+    const i = leerTabla('Insumos').find((x) => x.id === String(d.insumo_id || ''));
+    if (!i || !activo(i.activo) || !i.lote_insumo_id) throw new ErrorApp('Esa casilla no tiene lotes.', 'datos');
+    ponerCampos(i._fila, { lote_cantidad: cantidad || '' });
+    return { insumos: insumosActivos() };
+  });
+}
+
+// Cambia la forma de medir de una casilla. Lo que está en una receta, se vende o se descuenta con un lote
+// tiene que seguir contándose.
+function cambiarMedicion(d) {
+  const medicion = String(d.medicion || '');
+  if (MEDICIONES.indexOf(medicion) < 0) throw new ErrorApp('Elige cómo se mide.', 'datos');
+  return conBloqueo(() => {
+    const insumos = leerTabla('Insumos').filter((x) => activo(x.activo));
+    const i = insumos.find((x) => x.id === String(d.insumo_id || ''));
+    if (!i) throw new ErrorApp('No se encontró la casilla. Recarga la página.', 'datos');
+    const actual = MEDICIONES.indexOf(i.medicion) >= 0 ? i.medicion : 'conteo';
+    const conteo = medicion === 'conteo';
+    const unidad = !conteo ? '' : UNIDADES.indexOf(d.unidad_base) >= 0 ? d.unidad_base
+      : UNIDADES.indexOf(i.unidad_base) >= 0 ? i.unidad_base : 'unidad';
+    if (actual === medicion && unidad === (conteo ? i.unidad_base : '')) return { cambio: false, insumos: insumosActivos() };
+
+    if (!conteo) {
+      if (i.tipo === 'bebida') throw new ErrorApp('Las bebidas se cuentan: se venden y se descuentan solas.', 'datos');
+      const enRecetas = {};
+      leerTabla('RecetaIngredientes').forEach((ri) => { if (ri.insumo_id === i.id) enRecetas[ri.receta_id] = true; });
+      const recetas = leerTabla('Recetas').filter((r) => activo(r.activa) && enRecetas[r.id]).map((r) => r.nombre);
+      if (recetas.length) throw new ErrorApp('Está en la receta de ' + recetas.join(', ') + '. Quítala de ahí primero.', 'datos');
+      const lotes = insumos.filter((x) => x.lote_insumo_id === i.id).map((x) => x.nombre);
+      if (lotes.length) throw new ErrorApp('Se descuenta con los lotes de ' + lotes.join(', ') + '.', 'datos');
+    }
+
+    ponerCampos(i._fila, {
+      medicion: medicion, unidad_base: unidad,
+      stock_minimo: conteo ? num(i.stock_minimo) : '',
+      estado_actual: conteo ? '' : (actual === medicion ? i.estado_actual : ESTADO_INICIAL[medicion])
+    });
+    recalcularStocks();
+    if (conteo) actualizarCierres(hoyLima(), [i.id]);
+    return { cambio: true, insumos: insumosActivos() };
+  });
+}
+
+// Escribe algunas columnas de una fila de Insumos.
+function ponerCampos(fila, campos) {
+  const sh = hoja('Insumos');
+  Object.keys(campos).forEach((col) => sh.getRange(fila, HOJAS.Insumos.indexOf(col) + 1).setValue(campos[col]));
+}
+
+// ---------------------------------------------------------------------------
+// Alertas por Telegram
+// ---------------------------------------------------------------------------
+
+// Máximo un aviso por casilla por día: "alerta:<id>" guarda en Script Properties la fecha del último aviso,
+// y solo se vuelve a avisar cuando esa fecha ya no es hoy. Las marcas de días anteriores se borran,
+// así solo quedan las de hoy y no se acumulan claves.
+// Si Telegram no está configurado o falla, no se marca nada y el guardado sigue normal.
+function alertar(lista) {
+  if (!lista.length) return;
+  const props = PropertiesService.getScriptProperties();
+  const hoy = hoyLima();
+  const marcas = props.getProperties();
+  Object.keys(marcas).forEach((k) => {
+    if (k.indexOf('alerta:') === 0 && marcas[k] !== hoy) props.deleteProperty(k);
+  });
+  const nuevas = lista.filter((a) => marcas['alerta:' + a.id] !== hoy);
+  if (!nuevas.length) return;
+  if (!enviarTelegram(nuevas.map((a) => a.texto).join('\n'))) return;
+  nuevas.forEach((a) => props.setProperty('alerta:' + a.id, hoy));
+}
+
+function enviarTelegram(texto) {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('TELEGRAM_TOKEN');
+  const chat = props.getProperty('TELEGRAM_CHAT_ID');
+  if (!token || !chat) return false;
+  try {
+    const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'post', payload: { chat_id: chat, text: texto }, muteHttpExceptions: true
+    });
+    if (r.getResponseCode() === 200) return true;
+    console.error('Telegram respondió ' + r.getResponseCode() + ': ' + r.getContentText());
+  } catch (err) {
+    console.error('No se pudo enviar a Telegram: ' + err);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +698,7 @@ function crearReceta(d) {
   });
 }
 
+// En una receta solo van casillas de conteo: las salsas y lo que se marca no se descuentan con las ventas.
 function guardarReceta(d) {
   const recetaId = String(d.id || '');
   const lista = (Array.isArray(d.ingredientes) ? d.ingredientes : []).map((i) => ({
@@ -273,11 +709,11 @@ function guardarReceta(d) {
 
   return conBloqueo(() => {
     if (!leerTabla('Recetas').some((r) => r.id === recetaId)) throw new ErrorApp('No se encontró la receta.', 'datos');
-    const ids = insumosActivos().map((i) => i.id);
+    const ids = insumosActivos().filter((i) => i.medicion === 'conteo').map((i) => i.id);
     // Si un ingrediente se repite, se suman las cantidades.
     const porInsumo = {};
     lista.forEach((i) => {
-      if (ids.indexOf(i.insumo_id) < 0) throw new ErrorApp('Elige un ingrediente del inventario.', 'datos');
+      if (ids.indexOf(i.insumo_id) < 0) throw new ErrorApp('Elige un ingrediente que se cuente (porciones o unidades).', 'datos');
       porInsumo[i.insumo_id] = redondear((porInsumo[i.insumo_id] || 0) + i.cantidad);
     });
     const otras = leerTabla('RecetaIngredientes').filter((i) => i.receta_id !== recetaId);
@@ -303,7 +739,8 @@ function cargarVentas(d) {
     fecha: fecha,
     guardado: ventas.length > 0,
     panes: datos.recetas.map((r) => Object.assign({}, r, { vendidos: vendidos('receta', r.id) })),
-    bebidas: datos.insumos.filter((i) => i.tipo === 'bebida').map((i) => Object.assign({}, i, { vendidos: vendidos('insumo', i.id) })),
+    bebidas: datos.insumos.filter((i) => i.tipo === 'bebida' && i.medicion === 'conteo')
+      .map((i) => Object.assign({}, i, { vendidos: vendidos('insumo', i.id) })),
     insumos: datos.insumos
   };
 }
@@ -332,6 +769,8 @@ function guardarVentas(d, ctx) {
         if (!r) throw new ErrorApp('No se encontró uno de los panes. Recarga la página.', 'datos');
         if (!r.ingredientes.length) sinReceta.push(r.nombre);
         r.ingredientes.forEach((ing) => {
+          // Solo se descuenta lo que se cuenta.
+          if (!insumos[ing.insumo_id] || insumos[ing.insumo_id].medicion !== 'conteo') return;
           descuentos[ing.insumo_id] = (descuentos[ing.insumo_id] || 0) + ing.cantidad * v.cantidad;
         });
       } else {
@@ -352,11 +791,15 @@ function guardarVentas(d, ctx) {
       id: nuevoId('mov'), fecha: fecha, hora: hora, insumo_id: id, tipo: 'venta',
       cantidad: redondear(descuentos[id]), origen: origen, nota: 'Ventas del día', usuario: ctx.usuario
     }));
-    reescribirTabla('Movimientos', leerTabla('Movimientos').filter((m) => m.origen !== origen).concat(nuevos));
+    const movimientos = leerTabla('Movimientos');
+    const anteriores = movimientos.filter((m) => m.origen === origen).map((m) => m.insumo_id);
+    reescribirTabla('Movimientos', movimientos.filter((m) => m.origen !== origen).concat(nuevos));
     recalcularStocks();
+    const posteriores = actualizarCierres(fecha, anteriores.concat(nuevos.map((m) => m.insumo_id)));
 
     return {
       sinReceta: sinReceta,
+      posteriores: posteriores,
       descontado: nuevos.map((m) => ({ insumo_id: m.insumo_id, cantidad: m.cantidad })),
       insumos: insumosActivos()
     };
@@ -380,15 +823,20 @@ function leerTabla(nombre) {
   const filas = [];
   valores.forEach((r, i) => {
     if (!r.some((v) => v !== '' && v !== null)) return;
-    const o = { _fila: i + 2 };
-    cab.forEach((col, j) => { o[col] = normalizar(col, r[j]); });
-    filas.push(o);
+    filas.push(aObjeto(cab, r, i + 2));
   });
   return filas;
 }
 
+function aObjeto(cab, r, fila) {
+  const o = { _fila: fila };
+  cab.forEach((col, j) => { o[col] = normalizar(col, r[j]); });
+  return o;
+}
+
 function esColumnaTexto(col) {
-  return Boolean(FORMATO_TEXTO[col]) || col === 'id' || col.slice(-3) === '_id' || col === 'origen';
+  return Boolean(FORMATO_TEXTO[col]) || col === 'id' || col.slice(-3) === '_id' ||
+    ['origen', 'gramaje_ref', 'estado_actual', 'nota'].indexOf(col) >= 0;
 }
 
 // Si Sheets convirtió una fecha u hora en Date, la vuelve a texto en hora de Lima.
@@ -456,8 +904,20 @@ function vacio(v) { return v === '' || v == null; }
 function num(v) { return Number(v) || 0; }
 function redondear(n) { return Math.round(n * 1000) / 1000; }
 function activo(v) { return v !== false && String(v).toUpperCase() !== 'FALSE'; }
+function sinVacios(lista) { return lista.filter(Boolean); }
+function capital(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function unidadTexto(unidad, n) {
+  const plural = Math.abs(n) !== 1;
+  if (unidad === 'porción') return plural ? 'porciones' : 'porción';
+  return plural ? 'unidades' : 'unidad';
+}
 function mismoNombre(a, b) { return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); }
 function nuevoId(prefijo) { return prefijo + '-' + Utilities.getUuid().slice(0, 8); }
 function slug(s) {
-  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return quitarTildes(String(s).toLowerCase()).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+// Quita las tildes. Escrito solo con caracteres ASCII para que copiar y pegar el archivo no lo rompa.
+const TILDES = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
+function quitarTildes(s) {
+  return s.normalize('NFD').replace(TILDES, '');
 }

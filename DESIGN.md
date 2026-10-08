@@ -90,7 +90,7 @@ Debajo de las píldoras. Filas con fondo `--alert-bg`, un punto `--alert` y el t
 
 ### Gráfica de inventario
 
-Aquí no van píldoras de colores, porque serían demasiadas. Arriba, un buscador. Después, una gráfica de barras horizontales agrupada por categoría (encabezado de 13px en `--ink-soft`), con las casillas en orden alfabético dentro de cada grupo: nombre a la izquierda, barra en `--ink` sobre una pista `--surface` (misma escala dentro del grupo, punta derecha con radio de 4px) y el número con su unidad a la derecha. Si la casilla va en porciones, debajo del número van los gramos en 13px `--ink-soft`. Una rayita `--alert` de 2px marca el mínimo sobre la pista; si está bajo o en negativo, el número va en `--alert` con un punto al lado. Arriba a la derecha, el botón "+ Nueva casilla".
+Aquí no van píldoras de colores, porque serían demasiadas. Arriba, un buscador. Después, una gráfica de barras horizontales agrupada por categoría (encabezado de 13px en `--ink-soft`), con las casillas en orden alfabético dentro de cada grupo: nombre a la izquierda, barra en `--ink` sobre una pista `--surface` (misma escala dentro del grupo, punta derecha con radio de 4px) y el número con su unidad a la derecha. Una rayita `--alert` de 2px marca el mínimo sobre la pista; si está bajo o en negativo, el número va en `--alert` con un punto al lado. Arriba a la derecha, el botón "+ Nueva casilla".
 
 ### Filas con campo de número (Producción y Ventas)
 

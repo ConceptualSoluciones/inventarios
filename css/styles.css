@@ -199,6 +199,56 @@ button { cursor: pointer; }
 }
 .punto { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--alert); }
 
+.hoy { display: flex; flex-direction: column; gap: 24px; }
+.hoy > .fila-fecha + .fecha-larga { margin-top: -16px; }
+.subtitulo--seccion { margin: 8px 0 -8px; font-size: 16px; font-weight: 700; color: var(--ink); }
+
+/* Control del día (proteínas): inicial + producido − vendido − merma = quedan */
+.control { display: flex; flex-direction: column; gap: 12px; padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
+.control .btn { align-self: flex-start; }
+.control-cabeza { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.control-queda { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.control-queda-num { display: flex; align-items: baseline; gap: 2px; font-size: 34px; line-height: 1.1; }
+.control-queda-num .punto { align-self: center; margin-right: 6px; }
+.control--bajo .control-queda-num strong { color: var(--alert-texto); }
+.control-cuentas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radio);
+  background: var(--surface);
+}
+.control-celda { display: flex; flex-direction: column; }
+.control-num { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.control-etiqueta { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
+
+/* Salsas (Lleno · Medio · Poco · Vacío) e ingredientes (Hay / Falta) */
+.fila-estado { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.fila-estado-cabeza { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.fila-estado--marcar { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.estados { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.estados--2 { flex: none; grid-template-columns: repeat(2, 76px); }
+.estado-btn {
+  min-height: 52px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radio);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 500;
+}
+.estado-btn[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--on-ink); font-weight: 700; }
+/* Poco, Vacío y Falta marcados: fondo de alerta y borde rojo (el texto ya dice qué es) */
+.estado-btn--alerta[aria-pressed="true"] { border: 2px solid var(--alert); background: var(--alert-bg); color: var(--alert-ink); }
+
+/* Movimientos y Ajustes */
+.mov-valor { flex: none; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.bloque-ajuste { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+
+.plegable > summary { display: list-item; min-height: 44px; padding: 12px 0; cursor: pointer; }
+
 /* ---------- píldoras ---------- */
 
 .pills { display: flex; flex-direction: column; gap: 16px; padding-top: 12px; }

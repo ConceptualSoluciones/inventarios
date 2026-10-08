@@ -1,152 +1,131 @@
 /**
- * SANTO — datos iniciales (salen de RECETAS.md, ficha de gramajes vigente al 05/10/2026).
+ * SANTO — datos iniciales (salen de RECETAS.md, revisado con cocina el 07/10/2026).
  *
  * cargarSemilla() agrega lo que falta, comparando por id. No duplica nada si se corre dos veces
  * y no toca lo que ya existe (si cocina cambió una receta en la app, se respeta).
- * Unidades: todo en g, salvo panes, huevo y bebidas, que van en unidades.
- * porcion_g: si la tiene, la app muestra y pide esa casilla en porciones, pero guarda gramos.
+ * Formas de medir: conteo (porciones o unidades), nivel (salsas) y marcar (hay / falta).
+ * Ya no se usan gramos: el gramaje queda solo como texto de referencia.
  */
 
 const SEMILLA = {
-  // [id, nombre, categoria, unidad_base, porcion_g]
+  // [id, nombre, categoria, medicion, unidad_base, gramaje_ref]
   insumos: [
-    ['prep-panceta', 'Panceta Bravo', 'Proteínas', 'g', 140],
-    ['prep-pollo', 'Pollo Invicto', 'Proteínas', 'g', 150],
-    ['prep-asado-res', 'Asado de res', 'Proteínas', 'g', 120],
-    ['prep-asado-criollo', 'Asado criollo', 'Proteínas', 'g', 120],
-    ['prep-chicharron', 'Chicharrón', 'Proteínas', 'g', 140],
-    ['prep-portobello', 'Portobello anticuchero', 'Proteínas', 'g', 90],
-    ['prep-fiambres', 'Mix fiambres', 'Proteínas', 'g', 90],
-    ['prep-pollo-desh', 'Pollo deshilachado', 'Proteínas', 'g', 140],
+    // Proteínas: conteo en porciones, con control del día.
+    ['prep-panceta', 'Panceta / Chicharrón', 'Proteínas', 'conteo', 'porción', '140 g'],
+    ['prep-pollo', 'Pollo Invicto', 'Proteínas', 'conteo', 'porción', '150 g crudo'],
+    ['prep-asado', 'Asado', 'Proteínas', 'conteo', 'porción', '120 g'],
+    ['prep-portobello', 'Portobello anticuchero', 'Proteínas', 'conteo', 'porción', '90 g'],
+    ['prep-fiambres', 'Mix fiambres Artesano', 'Proteínas', 'conteo', 'porción', '90 g'],
+    ['prep-pollo-desh', 'Pollo deshilachado', 'Proteínas', 'conteo', 'porción', '140 g'],
 
-    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas', 'g', 0],
-    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas', 'g', 0],
-    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas', 'g', 0],
-    ['sal-aji-huacatay', 'Ají amarillo, ajo y huacatay', 'Salsas', 'g', 0],
-    ['sal-golf', 'Golf ahumada', 'Salsas', 'g', 0],
-    ['sal-culantro', 'Culantro y cebollín', 'Salsas', 'g', 0],
-    ['sal-pesto', 'Pesto de albahaca', 'Salsas', 'g', 0],
-    ['sal-glaseado', 'Glaseado Bravo', 'Salsas', 'g', 0],
-    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas', 'g', 0],
+    // Panes, palta, tomate y papas: conteo.
+    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'conteo', 'unidad', ''],
+    ['ins-roseta', 'Roseta', 'Panes', 'conteo', 'unidad', ''],
+    ['ins-focaccia', 'Focaccia', 'Panes', 'conteo', 'unidad', ''],
+    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'conteo', 'unidad', ''],
+    ['ins-palta', 'Palta', 'Verduras', 'conteo', 'unidad', '1 palta = 2 panes'],
+    ['ins-tomate', 'Tomate', 'Verduras', 'conteo', 'unidad', '1 tomate = 2 panes'],
+    ['ins-papas', 'Papas congeladas', 'Congelados', 'conteo', 'porción', 'bolsa de 200 g'],
 
-    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'g', 40],
-    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'g', 40],
-    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'g', 50],
-    ['comp-camote-hilo', 'Camote al hilo', 'Complementos', 'g', 30],
-    ['comp-camote-frito', 'Camote frito', 'Complementos', 'g', 70],
-    ['comp-aros', 'Aros de cebolla', 'Complementos', 'g', 25],
-    ['comp-mantequilla', 'Mantequilla de ajo', 'Complementos', 'g', 10],
+    // Salsas: nivel del pote.
+    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas', 'nivel', '', ''],
+    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas', 'nivel', '', ''],
+    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas', 'nivel', '', ''],
+    ['sal-aji-huacatay', 'Ají amarillo con ajo y huacatay', 'Salsas', 'nivel', '', ''],
+    ['sal-golf', 'Golf ahumada', 'Salsas', 'nivel', '', ''],
+    ['sal-culantro', 'Culantro y cebollín', 'Salsas', 'nivel', '', ''],
+    ['sal-pesto', 'Pesto de albahaca', 'Salsas', 'nivel', '', ''],
+    ['sal-glaseado', 'Glaseado Bravo', 'Salsas', 'nivel', '', ''],
+    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas', 'nivel', '', ''],
 
-    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'unidad', 0],
-    ['ins-roseta', 'Roseta', 'Panes', 'unidad', 0],
-    ['ins-focaccia', 'Focaccia', 'Panes', 'unidad', 0],
-    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'unidad', 0],
-    ['ins-palta', 'Palta (neto)', 'Verduras', 'g', 0],
-    ['ins-lechuga', 'Lechuga', 'Verduras', 'g', 0],
-    ['ins-tomate', 'Tomate', 'Verduras', 'g', 0],
-    ['ins-arugula', 'Arúgula', 'Verduras', 'g', 0],
-    ['ins-paria', 'Queso Paria', 'Lácteos', 'g', 0],
-    ['ins-jamon', 'Jamón del país', 'Fiambres', 'g', 0],
-    ['ins-harina', 'Harina', 'Secos', 'g', 0],
-    ['ins-panko', 'Panko', 'Secos', 'g', 0],
-    ['ins-huevo', 'Huevo', 'Secos', 'unidad', 0],
-    ['ins-papas', 'Papas fritas', 'Congelados', 'g', 0]
+    // Ingredientes: solo se marca si hay o si falta.
+    ['ins-lechuga', 'Lechuga', 'Verduras', 'marcar', '', ''],
+    ['ins-arugula', 'Arúgula', 'Verduras', 'marcar', '', ''],
+    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'marcar', '', ''],
+    ['comp-camote-frito', 'Camote frito', 'Complementos', 'marcar', '', ''],
+    ['comp-aros', 'Aros de cebolla', 'Complementos', 'marcar', '', ''],
+    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'marcar', '', ''], // D2: pendiente si se quita
+    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'marcar', '', ''],
+    ['ins-paria', 'Queso Paria', 'Lácteos', 'marcar', '', ''],
+    ['ins-harina', 'Harina', 'Secos', 'marcar', '', ''],
+    ['ins-huevo', 'Huevo', 'Secos', 'marcar', '', ''],
+    ['ins-panko', 'Panko', 'Secos', 'marcar', '', '']
   ],
 
-  // Insumos solo de producción: existen en el inventario y bajan solo con salidas manuales.
+  // Insumos solo de producción: se marcan (hay / falta). Su id sale del nombre ("ins-" + slug).
   soloProduccion: [
     'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido', 'Ajinomoto', 'Sal', 'Pimienta negra', 'Comino', 'Laurel',
     'Canela china', 'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
-    'Albahaca', 'Aceite de oliva', 'Aceite', 'Parmesano', 'Almendra', 'Cebolla roja', 'Limón', 'Panceta',
-    'Carne para asado', 'Salami ahumado', 'Queso Edam', 'Queso Gouda', 'Mozzarella', 'Pasta de tomate',
-    'Concentrado de chicha', 'Portobello', 'Camote', 'Pollo deshuesado', 'Sazonador Doña Gusta carne',
-    'Sazonador Doña Gusta pollo/gallina'
+    'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate', 'Camote',
+    'Pollo deshuesado', 'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
   ],
 
-  // Bebidas: se venden solas. Stock y mínimo que dio el equipo.
-  // [id, nombre, stock, minimo]
+  // Bebidas: se venden solas (conteo, unidades). [id, nombre]
   bebidas: [
-    ['beb-chicha', 'Chicha', 2, 3],
-    ['beb-maracuya', 'Maracuyá', 6, 3]
+    ['beb-chicha', 'Chicha'],
+    ['beb-maracuya', 'Maracuyá']
   ],
 
-  // [id, nombre, grupo, estado, [[insumo_id, cantidad], ...]] — lo que lleva UN producto vendido
-  recetas: [
-    ['rec-artesano', 'El Artesano', 'cultos', 'vigente',
-      [['ins-masa-madre', 1], ['comp-mantequilla', 10], ['prep-fiambres', 90], ['comp-quesos', 50], ['sal-pesto', 40], ['ins-arugula', 20]]],
-    ['rec-bravo-pic', 'El Bravo (picante)', 'cultos', 'vigente',
-      [['ins-pan-cubano', 1], ['prep-panceta', 140], ['sal-glaseado', 30], ['sal-rocoto-pic', 40], ['comp-chalaquita', 40]]],
-    ['rec-bravo-sin', 'El Bravo (sin picante)', 'cultos', 'vigente',
-      [['ins-pan-cubano', 1], ['prep-panceta', 140], ['sal-glaseado', 30], ['sal-rocoto-sin', 40], ['comp-chalaquita', 40]]],
-    ['rec-invicto', 'El Invicto', 'cultos', 'vigente',
-      [['ins-pan-cubano', 1], ['prep-pollo', 150], ['ins-harina', 30], ['ins-huevo', 0.5], ['ins-panko', 40], ['ins-lechuga', 30], ['ins-tomate', 40], ['ins-palta', 50], ['sal-culantro', 20]]],
-    ['rec-fenomeno', 'El Fenómeno', 'cultos', 'vigente',
-      [['ins-focaccia', 1], ['prep-portobello', 90], ['ins-paria', 50], ['comp-aros', 25], ['ins-arugula', 15], ['sal-culantro', 20]]],
-    ['rec-incondicional', 'El Incondicional', 'cultos', 'vigente',
-      [['ins-pan-cubano', 1], ['prep-asado-res', 120], ['ins-palta', 50], ['comp-camote-hilo', 30], ['ins-arugula', 15], ['sal-aji-ahumado', 40]]],
+  // Lo que descuenta "Hice un lote". La cantidad por lote arranca vacía: cocina la define en Ajustes.
+  // { salsa: insumo que se descuenta }
+  lotes: { 'sal-glaseado': 'beb-chicha' },
 
-    ['rec-chicharron', 'Pan con chicharrón', 'criollos', 'vigente',
-      [['ins-roseta', 1], ['prep-chicharron', 140], ['comp-camote-frito', 70], ['comp-sarsa', 40]]],
-    ['rec-asado-criollo', 'Asado criollo', 'criollos', 'vigente',
-      [['ins-pan-cubano', 1], ['prep-asado-criollo', 120], ['ins-palta', 50], ['comp-sarsa', 40]]],
-    ['rec-butifarra', 'Butifarra', 'criollos', 'vigente',
-      [['ins-roseta', 1], ['ins-jamon', 100], ['comp-sarsa', 40]]],
-    ['rec-pollo-desh', 'Pollo deshilachado', 'criollos', 'provisional',
-      [['ins-pan-cubano', 1], ['prep-pollo-desh', 140], ['ins-lechuga', 20], ['sal-crema-aji', 15]]],
+  // [id, nombre, grupo, estado, [[insumo_id, cantidad], ...]] — lo que lleva UN producto vendido.
+  // Solo casillas de conteo: porciones (proteínas y papas) o unidades.
+  recetas: [
+    ['rec-artesano', 'El Artesano', 'cultos', 'vigente', [['ins-masa-madre', 1], ['prep-fiambres', 1]]],
+    ['rec-bravo', 'El Bravo', 'cultos', 'vigente', [['ins-pan-cubano', 1], ['prep-panceta', 1]]],
+    ['rec-invicto', 'El Invicto', 'cultos', 'vigente',
+      [['ins-pan-cubano', 1], ['prep-pollo', 1], ['ins-palta', 0.5], ['ins-tomate', 0.5]]],
+    ['rec-fenomeno', 'El Fenómeno', 'cultos', 'vigente', [['ins-focaccia', 1], ['prep-portobello', 1]]],
+    // D3: sin camote (pendiente si lleva camote frito).
+    ['rec-incondicional', 'El Incondicional', 'cultos', 'vigente', [['ins-pan-cubano', 1], ['prep-asado', 1], ['ins-palta', 0.5]]],
+
+    ['rec-chicharron', 'Pan con chicharrón', 'criollos', 'vigente', [['ins-roseta', 1], ['prep-panceta', 1]]],
+    ['rec-asado-criollo', 'Asado criollo', 'criollos', 'vigente', [['ins-pan-cubano', 1], ['prep-asado', 1], ['ins-palta', 0.5]]],
+    // D1: solo la roseta (pendiente si el jamón va como proteína).
+    ['rec-butifarra', 'Butifarra', 'criollos', 'vigente', [['ins-roseta', 1]]],
+    ['rec-pollo-desh', 'Pollo deshilachado', 'criollos', 'provisional', [['ins-pan-cubano', 1], ['prep-pollo-desh', 1]]],
     ['rec-choripan', 'Choripán vegano', 'criollos', 'sin_ficha', []],
     ['rec-kids', 'Kids', 'criollos', 'sin_ficha', []],
 
-    // Papas: un solo producto. El combo lleva papas + una bebida (una línea por bebida, como El Bravo).
-    ['rec-papas', 'Papas', 'papas', 'vigente', [['ins-papas', 200]]],
-    ['rec-combo-chicha', 'Combo papas + Chicha', 'papas', 'vigente', [['ins-papas', 200], ['beb-chicha', 1]]],
-    ['rec-combo-maracuya', 'Combo papas + Maracuyá', 'papas', 'vigente', [['ins-papas', 200], ['beb-maracuya', 1]]]
-  ],
-
-  // Recetas de versiones anteriores que ya no se venden: se desactivan (no se borran, para no perder historial).
-  retiradas: ['rec-papas-200', 'rec-papas-150']
+    // D4: 1 porción = bolsa de 200 g; la del combo grupal (150 g) vale 0.75.
+    ['rec-papas', 'Papas combo individual / extra', 'papas', 'vigente', [['ins-papas', 1]]],
+    ['rec-papas-grupal', 'Papas combo grupal (por persona)', 'papas', 'vigente', [['ins-papas', 0.75]]],
+    ['rec-combo-chicha', 'Combo papas + Chicha', 'papas', 'vigente', [['ins-papas', 1], ['beb-chicha', 1]]],
+    ['rec-combo-maracuya', 'Combo papas + Maracuyá', 'papas', 'vigente', [['ins-papas', 1], ['beb-maracuya', 1]]]
+  ]
 };
 
+// Nada trae stock ni mínimo inventado: todo lo que se cuenta arranca en 0 y sin mínimo.
+// Los números reales se ponen en la Revisión inicial y los mínimos en Ajustes.
 function cargarSemilla() {
-  const ctx = { usuario: 'semilla' };
-  const hoy = hoyLima();
-  const hora = horaLima();
-
-  // Insumos
+  // Casillas
   const existentes = {};
   leerTabla('Insumos').forEach((i) => { existentes[i.id] = true; });
   const nuevos = [];
-  const movimientos = [];
-  const insumo = (id, nombre, categoria, tipo, unidad, porcion, minimo) => ({
-    id: id, nombre: nombre, categoria: categoria, tipo: tipo, unidad_base: unidad, porcion_g: porcion || '',
-    stock_actual: 0, stock_minimo: minimo || 0, proveedor: '', activo: true
+  const insumo = (id, nombre, categoria, tipo, medicion, unidad, gramaje) => ({
+    id: id, nombre: nombre, categoria: categoria, tipo: tipo, medicion: medicion,
+    unidad_base: medicion === 'conteo' ? unidad : '', gramaje_ref: gramaje || '',
+    stock_actual: medicion === 'conteo' ? 0 : '', stock_minimo: medicion === 'conteo' ? 0 : '',
+    estado_actual: ESTADO_INICIAL[medicion] || '',
+    lote_insumo_id: SEMILLA.lotes[id] || '', lote_cantidad: '', proveedor: '', activo: true
   });
-  SEMILLA.insumos.forEach(([id, nombre, categoria, unidad, porcion]) => {
-    if (!existentes[id]) nuevos.push(insumo(id, nombre, categoria, 'ingrediente', unidad, porcion, 0));
+  SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, gramaje]) => {
+    if (!existentes[id]) nuevos.push(insumo(id, nombre, categoria, 'ingrediente', medicion, unidad, gramaje));
   });
   SEMILLA.soloProduccion.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(insumo(id, nombre, 'Solo producción', 'ingrediente', 'g', 0, 0));
+    if (!existentes[id]) nuevos.push(insumo(id, nombre, 'Solo producción', 'ingrediente', 'marcar', '', ''));
   });
-  SEMILLA.bebidas.forEach(([id, nombre, stock, minimo]) => {
-    if (existentes[id]) return;
-    nuevos.push(insumo(id, nombre, 'Bebidas', 'bebida', 'unidad', 0, minimo));
-    if (stock > 0) {
-      movimientos.push({
-        id: nuevoId('mov'), fecha: hoy, hora: hora, insumo_id: id, tipo: 'ajuste',
-        cantidad: stock, origen: 'manual', nota: 'Stock inicial', usuario: ctx.usuario
-      });
-    }
+  SEMILLA.bebidas.forEach(([id, nombre]) => {
+    if (!existentes[id]) nuevos.push(insumo(id, nombre, 'Bebidas', 'bebida', 'conteo', 'unidad', ''));
   });
   agregarFilas('Insumos', nuevos);
-  agregarFilas('Movimientos', movimientos);
 
   // Recetas: solo se cargan los ingredientes de las recetas que recién se crean.
   const recetasExistentes = {};
-  const colActiva = HOJAS.Recetas.indexOf('activa') + 1;
-  leerTabla('Recetas').forEach((r) => {
-    recetasExistentes[r.id] = true;
-    if (SEMILLA.retiradas.indexOf(r.id) >= 0 && activo(r.activa)) hoja('Recetas').getRange(r._fila, colActiva).setValue(false);
-  });
+  leerTabla('Recetas').forEach((r) => { recetasExistentes[r.id] = true; });
   const recetas = [];
   const ingredientes = [];
   SEMILLA.recetas.forEach(([id, nombre, grupo, estado, items]) => {

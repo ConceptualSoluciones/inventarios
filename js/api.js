@@ -5,6 +5,8 @@
 
   const TIMEOUT_MS = 25000;
   const MSJ_RED = 'No se pudo conectar. Revisa tu conexión y vuelve a intentar.';
+  const MSJ_VERSION = 'El Apps Script publicado es de una versión anterior. Pega el Code.gs y el Semilla.gs nuevos, ' +
+    'ejecuta empezarDeCero() y publica una versión nueva (Implementar › Administrar implementaciones › editar › Nueva versión).';
 
   class ApiError extends Error {
     constructor(mensaje, codigo) {
@@ -73,7 +75,13 @@
       throw new ApiError('El servidor respondió algo inesperado. Revisa la URL en config.js.', 'formato');
     }
     if (!json || json.ok !== true) {
+      if (json && json.code === 'accion') throw new ApiError(MSJ_VERSION, 'config');
       throw new ApiError((json && json.error) || 'Ocurrió un error en el servidor.', (json && json.code) || 'servidor');
+    }
+    // Un backend anterior a las formas de medir manda las casillas sin "medicion": la app no sabría mostrarlas.
+    const insumos = json.data && json.data.insumos;
+    if (Array.isArray(insumos) && insumos.length && insumos.every((i) => !('medicion' in i))) {
+      throw new ApiError(MSJ_VERSION, 'config');
     }
     return json.data;
   }
@@ -106,9 +114,19 @@
   window.Api = {
     ApiError, sesion, hoyLima, modoDemo, llamar,
     verificarPin: () => llamar('verificarPin'),
+    cargarHoy: (fecha) => llamar('cargarHoy', { fecha }),
+    cambiarEstado: (d) => llamar('cambiarEstado', d),
+    anotarControl: (d) => llamar('anotarControl', d),
+    hiceUnLote: (d) => llamar('hiceUnLote', d),
     cargarInventario: () => llamar('cargarInventario'),
     crearInsumo: (d) => llamar('crearInsumo', d),
     registrarEntradas: (d) => llamar('registrarEntradas', d),
+    guardarRevision: (d) => llamar('guardarRevision', d),
+    cargarMovimientos: (d) => llamar('cargarMovimientos', d),
+    guardarMinimos: (d) => llamar('guardarMinimos', d),
+    ajustarStock: (d) => llamar('ajustarStock', d),
+    guardarLote: (d) => llamar('guardarLote', d),
+    cambiarMedicion: (d) => llamar('cambiarMedicion', d),
     cargarRecetas: () => llamar('cargarRecetas'),
     crearReceta: (d) => llamar('crearReceta', d),
     guardarReceta: (d) => llamar('guardarReceta', d),

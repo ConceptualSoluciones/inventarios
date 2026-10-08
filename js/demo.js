@@ -16,6 +16,7 @@
       return 0;
     }
     setFrozenRows() {}
+    clear() { this.datos = []; return this; }
     poner(fila, col, valor) {
       if (fila > this.max) throw new Error(`Fila ${fila} fuera de la hoja ${this.nombre}`);
       while (this.datos.length < fila) this.datos.push([]);
@@ -64,12 +65,19 @@
     deleteSheet(h) { delete this.hojas[h.nombre]; }
   };
 
-  // El PIN del demo es el que escriba la persona: cualquiera sirve.
+  // El PIN del demo es el que escriba la persona: cualquiera sirve. Sin Telegram configurado, no se envía nada.
   let pinDemo = '';
+  const propiedades = {};
+  const scriptProperties = {
+    getProperty: (k) => (k === 'PIN' ? pinDemo : (k in propiedades ? propiedades[k] : null)),
+    setProperty(k, v) { propiedades[k] = String(v); return this; },
+    deleteProperty(k) { delete propiedades[k]; return this; },
+    getProperties: () => ({ ...propiedades })
+  };
 
   window.SpreadsheetApp = { getActive: () => libro, flush() {} };
   window.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
-  window.PropertiesService = { getScriptProperties: () => ({ getProperty: (k) => (k === 'PIN' ? pinDemo : null) }) };
+  window.PropertiesService = { getScriptProperties: () => scriptProperties };
   window.Utilities = {
     formatDate(fecha, tz, formato) {
       const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
