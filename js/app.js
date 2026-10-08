@@ -8,10 +8,9 @@
 
   const estado = {
     vistaId: 0,          // cambia en cada render; las cargas que llegan tarde se ignoran
-    fechaHoy: null,      // día elegido en Hoy (control del día de las proteínas)
+    fechaHoy: null,      // día elegido en Inventario (control del día de las proteínas)
     fechaVentas: null,   // día elegido en Ventas
-    insumos: null,
-    zonaInventario: null
+    insumos: null
   };
 
   // ---------- utilidades ----------
@@ -340,63 +339,21 @@
       h('div', { class: 'lista-items' }, hijos));
   }
 
-  // ---------- Hoy: alertas, control del día, salsas e ingredientes ----------
+  // ---------- Hoy: menú principal y notificaciones ----------
 
   function vistaInicio(main) {
-    const hoy = Api.hoyLima();
-    if (!estado.fechaHoy || estado.fechaHoy > hoy) estado.fechaHoy = hoy;
-    const fecha = estado.fechaHoy;
     const menu = h('nav', { class: 'pills', 'aria-label': 'Menú principal' }, MENU.map((op) => pildoraMenu(op)));
-    const zona = h('div', { class: 'hoy' }, esqueletoFilas(6));
-    main.replaceChildren(h('h1', { class: 'titulo' }, 'Hoy'), menu, zona);
-    cargarEn(zona, () => Api.cargarHoy(fecha), (datos) => pintarHoy(zona, menu, datos));
-  }
-
-  function pintarHoy(zona, menu, datos) {
-    estado.insumos = datos.insumos;
-    const insumos = datos.insumos;
-    const porId = {};
-    insumos.forEach((i) => { porId[i.id] = i; });
-
     const alertas = h('div');
-    const repintarAlertas = () => {
+    main.replaceChildren(
+      h('h1', { class: 'titulo' }, 'Hoy'),
+      h('p', { class: 'fecha-larga' }, fechaLarga(Api.hoyLima())),
+      menu,
+      alertas);
+    cargarEn(alertas, Api.cargarInventario, ({ insumos }) => {
+      estado.insumos = insumos;
       menu.replaceChildren(...MENU.map((op) => pildoraMenu(op, op.id === 'inventario' && pendientesInventario(insumos))));
       pintarAlertas(alertas, insumos);
-    };
-    repintarAlertas();
-
-    // Proteínas: control del día de la fecha elegida.
-    const control = datos.control
-      .filter((c) => porId[c.insumo_id])
-      .sort((a, b) => porNombre(porId[a.insumo_id], porId[b.insumo_id]))
-      .map((c) => filaControl(porId[c.insumo_id], c, datos.fecha));
-
-    // Salsas e ingredientes: muestran siempre el estado actual y se guardan al tocar.
-    const conEstado = (item) => {
-      const extra = item.lote_insumo_id && h('button', {
-        type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirLote(item, porId)
-      }, 'Hice un lote');
-      return filaConEstado(item, selectorEnVivo(item, repintarAlertas), extra);
-    };
-    const salsas = insumos.filter((i) => i.medicion === 'nivel').sort(porNombre).map(conEstado);
-    const ingredientes = agruparPorCategoria(insumos.filter((i) => i.medicion === 'marcar')).map(({ categoria, items }) => {
-      const filas = items.map(conEstado);
-      if (categoria !== 'Solo producción') return grupoInsumos(categoria, filas);
-      // Es la lista más larga y se usa menos: va plegada.
-      return h('details', { class: 'grupo plegable' },
-        h('summary', { class: 'subtitulo' }, `Solo producción (${items.length})`),
-        h('div', { class: 'lista-items' }, filas));
     });
-
-    zona.replaceChildren(...sinVacios([
-      alertas,
-      ...selectorFecha(datos.fecha, (f) => { estado.fechaHoy = f; render(); }),
-      control.length && grupoInsumos('Proteínas', control),
-      salsas.length && grupoInsumos('Salsas', salsas),
-      ingredientes.length && h('section', { class: 'grupos' },
-        h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Ingredientes'),
-        ...ingredientes)
-    ]));
   }
 
   function pintarAlertas(cont, insumos) {
@@ -454,7 +411,7 @@
       h('span', { class: 'control-num' }, (n ? signo : '') + nf.format(n)),
       h('span', { class: 'control-etiqueta' }, etiqueta));
     const bajo = c.queda < 0;
-    return h('div', { class: 'control' + (bajo ? ' control--bajo' : '') },
+    return h('div', { class: 'control' + (bajo ? ' control--bajo' : ''), 'data-buscar': sinTildes(item.nombre) },
       h('div', { class: 'control-cabeza' },
         h('span', { class: 'fila-etiqueta' }, item.nombre,
           item.gramaje_ref && h('span', { class: 'fila-nota' }, `${item.gramaje_ref} por porción`)),
@@ -559,31 +516,77 @@
     });
   }
 
-  // ---------- Inventario: gráfica de lo que hay ----------
+  // ---------- Inventario: el día, proteínas, lo que se cuenta, salsas e ingredientes ----------
 
   function vistaInventario(main) {
-    const zona = h('div', null, esqueletoFilas(7));
-    estado.zonaInventario = zona;
+    const hoy = Api.hoyLima();
+    if (!estado.fechaHoy || estado.fechaHoy > hoy) estado.fechaHoy = hoy;
+    const fecha = estado.fechaHoy;
+    const zona = h('div', { class: 'hoy' }, esqueletoFilas(7));
     main.replaceChildren(
       h('div', { class: 'titulo-fila' },
         h('h1', { class: 'titulo' }, 'Inventario'),
         h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: abrirNuevaCasilla }, '+ Nueva casilla')),
       zona);
-    cargarEn(zona, Api.cargarInventario, ({ insumos }) => {
-      estado.insumos = insumos;
-      pintarInventario(zona);
-    });
+    cargarEn(zona, () => Api.cargarHoy(fecha), (datos) => pintarInventario(zona, datos));
   }
 
-  // Barras horizontales de las casillas de conteo, agrupadas por categoría y en orden alfabético.
-  // Cada grupo tiene su propia escala, porque mezclar porciones con unidades no dice nada.
-  function pintarInventario(zona) {
-    const insumos = (estado.insumos || []).filter(esConteo);
+  function pintarInventario(zona, datos) {
+    estado.insumos = datos.insumos;
+    const insumos = datos.insumos;
     if (!insumos.length) {
       zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay casillas. Crea la primera con “+ Nueva casilla”.'));
       return;
     }
-    const lista = h('div', { class: 'grupos' }, agruparPorCategoria(insumos).map(({ categoria, items }) => {
+    const porId = {};
+    insumos.forEach((i) => { porId[i.id] = i; });
+
+    // Proteínas: control del día de la fecha elegida.
+    const conControl = {};
+    const control = datos.control
+      .filter((c) => porId[c.insumo_id])
+      .sort((a, b) => porNombre(porId[a.insumo_id], porId[b.insumo_id]))
+      .map((c) => { conControl[c.insumo_id] = true; return filaControl(porId[c.insumo_id], c, datos.fecha); });
+
+    // Lo demás que se cuenta (panes, verduras, papas, bebidas…), en barras.
+    const barras = graficaConteo(insumos.filter((i) => esConteo(i) && !conControl[i.id]));
+
+    // Salsas e ingredientes: muestran siempre el estado actual y se guardan al tocar.
+    const conEstado = (item) => {
+      const extra = item.lote_insumo_id && h('button', {
+        type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirLote(item, porId)
+      }, 'Hice un lote');
+      return filaConEstado(item, selectorEnVivo(item, () => {}), extra);
+    };
+    const salsas = insumos.filter((i) => i.medicion === 'nivel').sort(porNombre).map(conEstado);
+    const ingredientes = agruparPorCategoria(insumos.filter((i) => i.medicion === 'marcar')).map(({ categoria, items }) => {
+      const filas = items.map(conEstado);
+      if (categoria !== 'Solo producción') return grupoInsumos(categoria, filas);
+      // Es la lista más larga y se usa menos: va plegada.
+      return h('details', { class: 'grupo plegable' },
+        h('summary', { class: 'subtitulo' }, `Solo producción (${items.length})`),
+        h('div', { class: 'lista-items' }, filas));
+    });
+
+    const lista = h('div', { class: 'hoy' }, ...sinVacios([
+      control.length && grupoInsumos('Proteínas', control),
+      barras.length && h('section', { class: 'grupos' }, ...barras,
+        h('p', { class: 'pequeno texto-suave' }, 'Cada grupo usa su propia escala. La rayita roja marca el mínimo.')),
+      salsas.length && grupoInsumos('Salsas', salsas),
+      ingredientes.length && h('section', { class: 'grupos' },
+        h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Ingredientes'),
+        ...ingredientes)
+    ]));
+    zona.replaceChildren(
+      ...selectorFecha(datos.fecha, (f) => { estado.fechaHoy = f; render(); }),
+      buscador(lista, 'buscar-inventario'),
+      lista);
+  }
+
+  // Barras horizontales de casillas de conteo, agrupadas por categoría y en orden alfabético.
+  // Cada grupo tiene su propia escala, porque mezclar porciones con unidades no dice nada.
+  function graficaConteo(insumos) {
+    return agruparPorCategoria(insumos).map(({ categoria, items }) => {
       const max = Math.max(1, ...items.map((i) => Math.max(i.stock_actual, i.stock_minimo || 0)));
       const idTitulo = 'g-' + sinTildes(categoria).replace(/[^a-z0-9]+/g, '-');
       return h('section', { class: 'grupo', 'data-grupo': '', 'aria-labelledby': idTitulo },
@@ -603,11 +606,7 @@
                 h('span', { class: 'valor-unidad' }, m.unidad)),
               bajo && h('span', { class: 'solo-lector' }, negativo(i) ? ', quedó en negativo' : `, bajo el mínimo de ${mostrarTexto(i.stock_minimo, i)}`)));
         })));
-    }));
-    zona.replaceChildren(
-      buscador(lista, 'buscar-inventario'),
-      lista,
-      h('p', { class: 'pequeno texto-suave' }, 'Cada grupo usa su propia escala. La rayita roja marca el mínimo. Las salsas y los ingredientes que solo se marcan están en Hoy.'));
+    });
   }
 
   function abrirNuevaCasilla() {
@@ -668,9 +667,8 @@
         });
         estado.insumos = [...(estado.insumos || []), nuevo];
         Hoja.cerrar();
-        if (estado.zonaInventario && estado.zonaInventario.isConnected) pintarInventario(estado.zonaInventario);
-        else render();
-        aviso(conteo ? `Casilla creada: ${nuevo.nombre}` : `Casilla creada: ${nuevo.nombre}. Se marca en Hoy.`);
+        render();
+        aviso(`Casilla creada: ${nuevo.nombre}`);
       } catch (err) {
         aviso(mensajeError(err, MSJ_GUARDAR));
         libre(btn);

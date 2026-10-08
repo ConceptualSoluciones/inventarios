@@ -109,16 +109,9 @@ Las dudas D1–D4 de RECETAS.md se cargan con su valor por defecto y se corrigen
 
 ### Hoy (inicio)
 
-De arriba hacia abajo:
-1. **Alertas**: casillas de conteo en negativo ("Revisar Pan cubano: quedó en −2 u. · falta anotar lo que entró") y un resumen de lo que hay por comprar, con enlace a **"Por comprar"**. Si no hay nada, "Todo en orden".
-2. **Selector de fecha** (hoy por defecto). Afecta el control del día de las proteínas; salsas e ingredientes muestran siempre su estado actual.
-3. **Proteínas**: una fila por proteína con el control del día (inicial + producido − vendido − merma = queda), en porciones y con el gramaje de referencia en pequeño. Lo producido y la merma se anotan ahí mismo (crean movimientos `entrada` y `merma` en esa fecha). Lo vendido sale de Ventas.
-4. **Salsas**: nombre + 4 botones grandes **Lleno · Medio · Poco · Vacío**. Se toca uno y se guarda en el momento (movimiento `nivel`). El Glaseado Bravo abre su detalle, que tiene "Hice un lote".
-5. **Ingredientes**: lista con interruptor **Hay / Falta** (movimiento `marca`), agrupada por categoría, con Solo producción al final.
-
-Panes, palta, tomate, papas y bebidas se manejan desde Inventario.
-
-Las píldoras del menú (Inventario, Recetas, Producción, Ventas) se quedan como están, arriba de todo; su diseño y su lugar en Hoy se ven aparte. Los ingredientes "Solo producción" van al final, en un grupo plegado.
+Solo el menú y las notificaciones:
+1. Las **píldoras del menú** (Inventario, Recetas, Producción, Ventas), como están.
+2. **Notificaciones** ("Lo que falta hacer"): casillas de conteo en negativo ("Revisar Pan cubano: quedó en −2 u. · falta anotar lo que entró") y un resumen de lo que hay por comprar, con enlace a **"Por comprar"**. Si no hay nada, "Todo en orden".
 
 ### Por comprar
 
@@ -131,9 +124,14 @@ Es la misma lista que manda Telegram a las 20:00.
 
 ### Inventario
 
-- Solo casillas de **conteo**. Buscador arriba. Gráfica de barras horizontales agrupada por categoría (en el orden de la cocina) y en **orden alfabético** dentro de cada grupo, también al agregar casillas. Cada grupo tiene su propia escala.
-- Una rayita roja marca el mínimo; si está bajo o en negativo, el número va en rojo con un punto.
-- Botón "+ Nueva casilla": nombre, forma de medir (conteo, nivel o marcar), tipo (ingrediente o bebida), categoría y gramaje de referencia (opcional). Si es de conteo, además pide la unidad (porción o unidad), cuánto hay ahora y el mínimo. Si es de nivel o marcar, se crea en Lleno o Hay y aparece en Hoy.
+De arriba hacia abajo, con un buscador que filtra todo:
+1. **Selector de fecha** (hoy por defecto). Afecta el control del día de las proteínas; lo demás muestra siempre lo actual.
+2. **Proteínas**: una fila por proteína con el control del día (inicial + producido − vendido − merma = queda), en porciones y con el gramaje de referencia en pequeño. Lo producido y la merma se anotan ahí mismo (crean movimientos `entrada` y `merma` en esa fecha). Lo vendido sale de Ventas.
+3. **Lo demás que se cuenta** (panes, palta, tomate, papas, bebidas): gráfica de barras horizontales agrupada por categoría (en el orden de la cocina) y en **orden alfabético** dentro de cada grupo. Cada grupo tiene su propia escala. Una rayita roja marca el mínimo; si está bajo o en negativo, el número va en rojo con un punto.
+4. **Salsas**: nombre + 4 botones grandes **Lleno · Medio · Poco · Vacío**. Se toca uno y se guarda en el momento (movimiento `nivel`). El Glaseado Bravo tiene "Hice un lote".
+5. **Ingredientes**: lista con **Hay / Falta** (movimiento `marca`), agrupada por categoría, con "Solo producción" al final en un grupo plegado.
+
+Botón "+ Nueva casilla": nombre, forma de medir (conteo, nivel o marcar), tipo (ingrediente o bebida), categoría y gramaje de referencia (opcional). Si es de conteo, además pide la unidad (porción o unidad), cuánto hay ahora y el mínimo. Si es de nivel o marcar, se crea en Lleno o Hay.
 
 ### Producción (lo que entra)
 
