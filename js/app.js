@@ -84,10 +84,11 @@
   }
 
   function mensajeError(err, siFallaRed) {
-    if (err && err.codigo === 'pin') {
+    // Sesión vencida, cerrada o de alguien dado de baja: hay que volver a ingresar el PIN.
+    if (err && (err.codigo === 'sesion' || err.codigo === 'pin')) {
       Api.sesion.olvidarPin();
       setTimeout(mostrarIngreso, 0);
-      return 'El PIN no es válido. Vuelve a ingresarlo.';
+      return err.codigo === 'sesion' ? err.message : 'El PIN no es válido. Vuelve a ingresarlo.';
     }
     if (!err || err.codigo === 'red') return siFallaRed;
     return err.message || siFallaRed;
@@ -212,7 +213,9 @@
     return h('a', { class: 'volver', href }, '‹ ' + texto);
   }
 
-  function selectorFecha(fecha, alCambiar) {
+  // soloHoy: para quien no es admin (no corrige días pasados), solo muestra el día.
+  function selectorFecha(fecha, alCambiar, soloHoy) {
+    if (soloHoy) return [h('p', { class: 'fecha-larga' }, fechaLarga(fecha))];
     const hoy = Api.hoyLima();
     const input = h('input', {
       type: 'date', class: 'campo campo-fecha', id: 'fecha-dia', value: fecha, max: hoy,
@@ -520,7 +523,7 @@
 
   function vistaInventario(main) {
     const hoy = Api.hoyLima();
-    if (!estado.fechaHoy || estado.fechaHoy > hoy) estado.fechaHoy = hoy;
+    if (!estado.fechaHoy || estado.fechaHoy > hoy || !Api.sesion.esAdmin) estado.fechaHoy = hoy;
     const fecha = estado.fechaHoy;
     const zona = h('div', { class: 'hoy' }, esqueletoFilas(7));
     main.replaceChildren(
@@ -578,7 +581,7 @@
         ...ingredientes)
     ]));
     zona.replaceChildren(
-      ...selectorFecha(datos.fecha, (f) => { estado.fechaHoy = f; render(); }),
+      ...selectorFecha(datos.fecha, (f) => { estado.fechaHoy = f; render(); }, !Api.sesion.esAdmin),
       buscador(lista, 'buscar-inventario'),
       lista);
   }
@@ -770,13 +773,13 @@
 
   function vistaVentas(main) {
     const hoy = Api.hoyLima();
-    if (!estado.fechaVentas || estado.fechaVentas > hoy) estado.fechaVentas = hoy;
+    if (!estado.fechaVentas || estado.fechaVentas > hoy || !Api.sesion.esAdmin) estado.fechaVentas = hoy;
     const fecha = estado.fechaVentas;
     const zona = h('div', null, esqueletoFilas(6));
     main.replaceChildren(
       volver('#hoy', 'Hoy'),
       h('h1', { class: 'titulo' }, 'Ventas'),
-      ...selectorFecha(fecha, (f) => { estado.fechaVentas = f; render(); }),
+      ...selectorFecha(fecha, (f) => { estado.fechaVentas = f; render(); }, !Api.sesion.esAdmin),
       zona);
     cargarEn(zona, () => Api.cargarVentas(fecha), (datos) => pintarVentas(zona, datos));
   }
@@ -893,8 +896,10 @@
     main.replaceChildren(
       h('div', { class: 'titulo-fila' },
         h('h1', { class: 'titulo' }, 'Recetas'),
-        h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirNuevoPan(zona) }, '+ Nuevo pan')),
-      h('p', { class: 'texto-suave' }, 'Lo que lleva cada producto. Al registrar una venta, se descuenta esto del inventario.'),
+        Api.sesion.esAdmin && h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirNuevoPan(zona) }, '+ Nuevo pan')),
+      h('p', { class: 'texto-suave' }, Api.sesion.esAdmin
+        ? 'Lo que lleva cada producto. Al registrar una venta, se descuenta esto del inventario.'
+        : 'Lo que lleva cada producto. Solo un admin puede cambiarlas.'),
       zona);
     cargarEn(zona, Api.cargarRecetas, (datos) => pintarRecetas(zona, datos));
   }
@@ -904,9 +909,11 @@
     datos.insumos.forEach((i) => { insumos[i.id] = i; });
     const grupos = agruparRecetas(datos.recetas);
     if (!grupos.length) {
-      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay recetas. Crea la primera con “+ Nuevo pan”.'));
+      zona.replaceChildren(h('p', { class: 'vacio' }, Api.sesion.esAdmin
+        ? 'Todavía no hay recetas. Crea la primera con “+ Nuevo pan”.' : 'Todavía no hay recetas.'));
       return;
     }
+    const admin = Api.sesion.esAdmin;
     zona.replaceChildren(...grupos.map(({ titulo, items: recetas }) => {
       return h('section', { class: 'grupo' },
         h('h2', { class: 'subtitulo' }, titulo),
@@ -914,12 +921,14 @@
           const resumen = r.ingredientes
             .map((ing) => insumos[ing.insumo_id] && `${insumos[ing.insumo_id].nombre} ${cantidadTexto(ing.cantidad, insumos[ing.insumo_id].unidad_base)}`)
             .filter(Boolean).join(' · ');
+          const texto = h('span', { class: 'lista-texto' },
+            h('strong', null, r.nombre),
+            pastillaReceta(r),
+            resumen && h('span', { class: 'pequeno texto-suave' }, resumen));
+          // Cocina solo las ve; editarlas es de admin.
+          if (!admin) return h('div', { class: 'lista-fila' }, texto);
           return h('button', { type: 'button', class: 'lista-fila', onclick: () => abrirReceta(r, datos, zona) },
-            h('span', { class: 'lista-texto' },
-              h('strong', null, r.nombre),
-              pastillaReceta(r),
-              resumen && h('span', { class: 'pequeno texto-suave' }, resumen)),
-            h('span', { html: CHEVRON }));
+            texto, h('span', { html: CHEVRON }));
         })));
     }));
   }
@@ -1030,18 +1039,30 @@
   function vistaMas(main) {
     main.replaceChildren(
       h('h1', { class: 'titulo' }, 'Más'),
-      h('nav', { class: 'lista', 'aria-label': 'Más opciones' },
-        filaLista('#mas/revision', 'Revisión inicial', 'Marca cómo está todo y anota lo que hay, de una vez'),
+      h('nav', { class: 'lista', 'aria-label': 'Más opciones' }, ...sinVacios([
+        Api.sesion.esAdmin && filaLista('#mas/revision', 'Revisión inicial', 'Marca cómo está todo y anota lo que hay, de una vez'),
         filaLista('#mas/movimientos', 'Movimientos', 'Historial de entradas, ventas, ajustes, niveles y marcas'),
-        filaLista('#mas/ajustes', 'Ajustes', 'Mínimos, contar una casilla, lotes y forma de medir')),
+        Api.sesion.esAdmin && filaLista('#mas/ajustes', 'Ajustes', 'Mínimos, contar una casilla, lotes y forma de medir')])),
       h('div', { class: 'lista' },
         h('button', {
           type: 'button', class: 'lista-fila',
-          onclick: () => { Api.sesion.olvidarPin(); mostrarIngreso(); }
+          onclick: async (e) => {
+            ocupado(e.currentTarget, 'Cerrando…');
+            await Api.cerrarSesion();
+            mostrarIngreso();
+          }
         },
           h('span', { class: 'lista-texto' },
             h('strong', null, 'Cambiar de usuario'),
-            h('span', { class: 'pequeno texto-suave' }, `Registrando como ${Api.sesion.usuario}`)))));
+            h('span', { class: 'pequeno texto-suave' }, `Registrando como ${Api.sesion.usuario} · ${Api.sesion.rol}`)))));
+  }
+
+  // Si alguien sin rol admin abre a mano #mas/ajustes o #mas/revision. El servidor igual lo rechazaría.
+  function vistaSoloAdmin(main) {
+    main.replaceChildren(
+      volver('#mas', 'Más'),
+      h('h1', { class: 'titulo' }, 'Solo admin'),
+      h('p', { class: 'vacio' }, 'Esta sección la puede abrir solo un admin.'));
   }
 
   // Selector de casilla agrupado por categoría.
@@ -1112,6 +1133,7 @@
       const movs = datos.movimientos.filter((m) =>
         (!casilla.value || m.insumo_id === casilla.value) && (!tipo.value || m.tipo === tipo.value));
       lista.replaceChildren(...sinVacios([
+        movs.length && h('p', { class: 'pequeno texto-suave' }, 'Más recientes primero'),
         movs.length
           ? h('div', { class: 'lista-items' }, movs.map(fila))
           : h('p', { class: 'vacio' }, datos.movimientos.length ? 'Nada con esos filtros.' : 'No hay movimientos ese día.'),
@@ -1367,36 +1389,39 @@
         opcion('Nueva casilla', 'Agregar algo nuevo al inventario', abrirNuevaCasilla))));
   }
 
-  // ---------- ingreso: nombre y PIN ----------
+  // ---------- ingreso: PIN personal (el nombre lo dice el servidor) ----------
 
   function mostrarIngreso() {
     Hoja.cerrar();
     const pantalla = document.getElementById('ingreso');
-    const nombre = h('input', { class: 'campo', id: 'ing-nombre', autocomplete: 'name', maxlength: 40, enterkeyhint: 'next' });
-    nombre.value = Api.sesion.usuario;
-    const pin = h('input', { class: 'campo', id: 'ing-pin', type: 'password', inputmode: 'numeric', autocomplete: 'current-password', maxlength: 12, enterkeyhint: 'go' });
+    const pin = h('input', {
+      class: 'campo', id: 'ing-pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]*',
+      autocomplete: 'current-password', maxlength: 6, enterkeyhint: 'go'
+    });
     const error = h('p', { class: 'ingreso-error', role: 'alert' });
     const btn = h('button', { type: 'submit', class: 'btn btn-primario' }, 'Entrar');
 
     async function entrar(e) {
       e.preventDefault();
-      const usuario = nombre.value.trim();
       const clave = pin.value.trim();
-      if (!usuario) { error.textContent = 'Escribe tu nombre.'; nombre.focus(); return; }
-      if (!clave) { error.textContent = 'Escribe el PIN del equipo.'; pin.focus(); return; }
+      if (!/^\d{6}$/.test(clave)) { error.textContent = 'Tu PIN tiene 6 números.'; pin.focus(); return; }
       error.textContent = '';
-      Api.sesion.guardar(usuario, clave);
+      Api.sesion.olvidarPin();
       ocupado(btn, 'Entrando…');
       try {
-        await Api.verificarPin();
+        const quien = await Api.ingresar(clave);
         pantalla.hidden = true;
         document.getElementById('app').inert = false;
         render();
+        aviso(`Hola, ${quien.nombre}`);
       } catch (err) {
         if (err && err.codigo === 'pin') {
           Api.sesion.olvidarPin();
-          error.textContent = 'PIN incorrecto. Pregunta al equipo cuál es.';
+          error.textContent = 'PIN incorrecto. Si lo olvidaste, pídele a un admin uno nuevo.';
           pin.select();
+        } else if (err && err.codigo === 'bloqueado') {
+          Api.sesion.olvidarPin();
+          error.textContent = err.message;
         } else {
           error.textContent = (err && err.codigo !== 'red' && err.message) || 'No se pudo conectar. Revisa tu conexión y vuelve a intentar.';
         }
@@ -1408,15 +1433,15 @@
     pantalla.replaceChildren(h('div', { class: 'ingreso-caja' },
       h('p', { class: 'logo' }, 'santo'),
       h('h1', { class: 'titulo' }, 'Hola'),
-      h('p', { class: 'texto-suave' }, 'Escribe tu nombre y el PIN del equipo. Quedan guardados en este celular.'),
+      h('p', { class: 'texto-suave' }, 'Escribe tu PIN personal de 6 números. Este celular queda reconocido por 30 días.'),
+      Api.modoDemo() && h('p', { class: 'nota' }, 'Modo demo: 111111 entra como admin y 222222 como cocina.'),
       h('form', { class: 'ingreso-form', novalidate: true, onsubmit: entrar },
-        h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: 'ing-nombre' }, 'Tu nombre'), nombre),
-        h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: 'ing-pin' }, 'PIN'), pin),
+        h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: 'ing-pin' }, 'Tu PIN'), pin),
         error,
         btn)));
     pantalla.hidden = false;
     document.getElementById('app').inert = true;
-    (nombre.value ? pin : nombre).focus();
+    pin.focus();
   }
 
   // ---------- navegación ----------
@@ -1434,6 +1459,8 @@
     'mas/ajustes': vistaAjustes
   };
 
+  const RUTAS_ADMIN = ['mas/revision', 'mas/ajustes'];
+
   function rutaActual() {
     const r = location.hash.replace(/^#\/?/, '');
     return RUTAS[r] ? r : 'hoy';
@@ -1450,7 +1477,8 @@
       if (activo) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });
-    RUTAS[ruta](document.getElementById('vista'));
+    const vista = RUTAS_ADMIN.includes(ruta) && !Api.sesion.esAdmin ? vistaSoloAdmin : RUTAS[ruta];
+    vista(document.getElementById('vista'));
   }
 
   function init() {

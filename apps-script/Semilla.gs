@@ -100,6 +100,7 @@ const SEMILLA = {
 // Nada trae stock ni mínimo inventado: todo lo que se cuenta arranca en 0 y sin mínimo.
 // Los números reales se ponen en la Revisión inicial y los mínimos en Ajustes.
 function cargarSemilla() {
+  soloDesdeEditor('cargarSemilla');
   // Casillas
   const existentes = {};
   leerTabla('Insumos').forEach((i) => { existentes[i.id] = true; });

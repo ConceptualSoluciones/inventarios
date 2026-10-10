@@ -5,14 +5,14 @@
 
   const TIMEOUT_MS = 25000;
   const MSJ_RED = 'No se pudo conectar. Revisa tu conexión y vuelve a intentar.';
-  const MSJ_VERSION = 'El Apps Script publicado es de una versión anterior. Pega el Code.gs y el Semilla.gs nuevos, ' +
-    'ejecuta empezarDeCero() y publica una versión nueva (Implementar › Administrar implementaciones › editar › Nueva versión).';
+  const MSJ_VERSION = 'El Apps Script publicado es de una versión anterior. Pega el Code.gs y el Semilla.gs nuevos ' +
+    'y publica una versión nueva (Implementar › Administrar implementaciones › editar › Nueva versión).';
 
   class ApiError extends Error {
     constructor(mensaje, codigo) {
       super(mensaje);
       this.name = 'ApiError';
-      this.codigo = codigo; // 'red' | 'pin' | 'formato' | 'servidor' | 'accion' | 'datos' | 'config' | 'ocupado'
+      this.codigo = codigo; // 'red' | 'pin' | 'formato' | 'servidor' | 'accion' | 'datos' | 'config' | 'ocupado' | 'bloqueado' | 'permiso' | 'sesion'
     }
   }
 
@@ -29,28 +29,53 @@
     } catch (e) { /* sin almacenamiento: queda solo en memoria */ }
   }
 
+  // El PIN (personal, 6 números) solo viaja al ingresar y no se guarda. A cambio, el servidor entrega un token
+  // de sesión que queda en este celular. El nombre y el rol también los manda el servidor: no se escriben.
+  // Las claves de versiones anteriores (PIN compartido o PIN guardado) se borran.
+  ['santo.pin', 'santo.usuario', 'santo.clave'].forEach((k) => escribir(k, null));
   const sesion = {
-    get usuario() { return leer('santo.usuario') || ''; },
-    get pin() { return leer('santo.pin') || ''; },
-    get lista() { return Boolean(this.usuario && this.pin); },
-    guardar(usuario, pin) { escribir('santo.usuario', usuario); escribir('santo.pin', pin); },
-    olvidarPin() { escribir('santo.pin', null); }
+    get token() { return leer('santo.token') || ''; },
+    get usuario() { return leer('santo.nombre') || ''; },
+    get rol() { return leer('santo.rol') || 'cocina'; },
+    get esAdmin() { return this.rol === 'admin'; },
+    get lista() { return Boolean(this.token); },
+    guardarToken(token) { escribir('santo.token', token); },
+    guardarQuien(quien) {
+      if (!quien) return;
+      escribir('santo.nombre', quien.nombre);
+      escribir('santo.rol', quien.rol);
+    },
+    olvidarPin() { ['santo.token', 'santo.nombre', 'santo.rol'].forEach((k) => escribir(k, null)); }
   };
 
-  // ---------- fechas (día calendario de Lima) ----------
+  // ---------- fechas: día de operación en Lima ----------
+  // Antes de la hora de corte todavía es el día anterior. La hora la manda el servidor (HORA_CORTE_DIA en Code.gs).
+  function horaCorte() {
+    const guardada = leer('santo.corte');
+    const n = guardada == null || guardada === '' ? NaN : Number(guardada);
+    return Number.isInteger(n) && n >= 0 && n < 24 ? n : 5;
+  }
   function hoyLima() {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date());
+    }).format(new Date(Date.now() - horaCorte() * 60 * 60 * 1000));
   }
+  // Lo que todo pedido exitoso trae además de los datos: quién es y la hora de corte.
+  function recibir(json) {
+    sesion.guardarQuien(json.quien);
+    if (Number.isInteger(json.corte)) escribir('santo.corte', String(json.corte));
+  }
+  // Con PIN solo se ingresa; todo lo demás va con el token.
+  const cuerpo = (accion, datos, pin) =>
+    (pin ? { action: accion, pin, data: datos } : { action: accion, token: sesion.token, data: datos });
 
   // ---------- llamada al Apps Script ----------
   function modoDemo() {
     return !(window.SANTO_CONFIG && window.SANTO_CONFIG.API_URL);
   }
 
-  async function llamar(accion, datos = {}) {
-    if (modoDemo()) return Demo.atender(accion, datos);
+  async function llamar(accion, datos = {}, pin) {
+    if (modoDemo()) return Demo.atender(accion, datos, pin);
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -60,7 +85,7 @@
         method: 'POST',
         // text/plain evita el preflight de CORS, que Apps Script no soporta.
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: accion, pin: sesion.pin, usuario: sesion.usuario, data: datos }),
+        body: JSON.stringify(cuerpo(accion, datos, pin)),
         signal: ctrl.signal
       });
     } catch (e) {
@@ -76,8 +101,9 @@
     }
     if (!json || json.ok !== true) {
       if (json && json.code === 'accion') throw new ApiError(MSJ_VERSION, 'config');
-      throw new ApiError((json && json.error) || 'Ocurrió un error en el servidor.', (json && json.code) || 'servidor');
+      throw new ApiError((json && json.error) || 'Ocurrió un error. Intenta de nuevo.', (json && json.code) || 'servidor');
     }
+    recibir(json);
     // Un backend anterior a las formas de medir manda las casillas sin "medicion": la app no sabría mostrarlas.
     const insumos = json.data && json.data.insumos;
     if (Array.isArray(insumos) && insumos.length && insumos.every((i) => !('medicion' in i))) {
@@ -100,11 +126,12 @@
       .then(() => cargarScript('apps-script/Code.gs'))
       .then(() => cargarScript('apps-script/Semilla.gs')));
 
-    async function atender(accion, datos) {
+    async function atender(accion, datos, pin) {
       await cargar();
       await new Promise((r) => setTimeout(r, 400)); // se parece a la demora de Google
-      const json = window.SantoDemo.llamar({ action: accion, pin: sesion.pin, usuario: sesion.usuario, data: datos });
+      const json = window.SantoDemo.llamar(cuerpo(accion, datos, pin));
       if (!json.ok) throw new ApiError(json.error, json.code);
+      recibir(json);
       return json.data;
     }
 
@@ -113,7 +140,17 @@
 
   window.Api = {
     ApiError, sesion, hoyLima, modoDemo, llamar,
-    verificarPin: () => llamar('verificarPin'),
+    // Ingresa con el PIN y deja guardado el token de sesión (el PIN no se guarda).
+    ingresar: async (pin) => {
+      const r = await llamar('verificarPin', {}, pin);
+      sesion.guardarToken(r.token);
+      return r;
+    },
+    // Cierra la sesión en el servidor y la borra del celular. Si no hay conexión, igual se borra aquí.
+    cerrarSesion: async () => {
+      try { await llamar('cerrarSesion'); } catch (e) { /* se borra igual en el celular */ }
+      sesion.olvidarPin();
+    },
     cargarHoy: (fecha) => llamar('cargarHoy', { fecha }),
     cambiarEstado: (d) => llamar('cambiarEstado', d),
     anotarControl: (d) => llamar('anotarControl', d),

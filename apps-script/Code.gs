@@ -9,8 +9,17 @@
  * Antes de usarlo:
  *   1. Ejecutar setup() una vez desde el editor (crea las hojas y carga Semilla.gs).
  *      Para borrar todo y volver a la semilla: empezarDeCero().
- *   2. En Configuración del proyecto › Propiedades de la secuencia de comandos, agregar PIN.
- *      Para Telegram, además TELEGRAM_TOKEN y TELEGRAM_CHAT_ID.
+ *   2. Dar de alta al equipo desde el Sheet: menú SANTO › Agregar persona (nombre, PIN de 6 números, rol).
+ *      Cada persona entra con su PIN; en la pestaña Equipo el PIN queda solo como hash con sal.
+ *      Para Telegram, en Configuración del proyecto › Propiedades de la secuencia de comandos:
+ *      TELEGRAM_TOKEN y TELEGRAM_CHAT_ID.
+ *   3. Ejecutar instalarRespaldo() una vez: copia el Sheet cada noche a la carpeta "SANTO respaldos" de Drive.
+ *
+ * setup(), empezarDeCero(), cargarSemilla(), instalarRespaldo() y agregarPersona() solo corren a mano
+ * (editor o menú del Sheet): ningún pedido de la web puede crear, vaciar ni rehacer hojas, ni dar altas.
+ *
+ * Roles: "admin" puede todo. "cocina" no puede Ajustes, editar recetas, la Revisión inicial
+ * ni corregir días pasados (lo valida este archivo, no solo la pantalla).
  *
  * Tres formas de medir (columna medicion):
  *   - conteo: porciones o unidades. Tiene stock, que se mueve siempre a través de Movimientos:
@@ -20,19 +29,23 @@
  */
 
 const TZ = 'America/Lima';
+// Día de operación: antes de esta hora (Lima) todavía cuenta como el día anterior. La pantalla recibe este valor.
+const HORA_CORTE_DIA = 5;
 
 const HOJAS = {
   Insumos: ['id', 'nombre', 'categoria', 'tipo', 'medicion', 'unidad_base', 'gramaje_ref', 'stock_actual', 'stock_minimo',
     'estado_actual', 'lote_insumo_id', 'lote_cantidad', 'proveedor', 'activo'],
-  Movimientos: ['id', 'fecha', 'hora', 'insumo_id', 'tipo', 'cantidad', 'origen', 'nota', 'usuario'],
+  // fecha = día de operación (para agrupar por día) · momento = fecha calendario y hora reales (para ordenar).
+  Movimientos: ['id', 'fecha', 'hora', 'insumo_id', 'tipo', 'cantidad', 'origen', 'nota', 'usuario', 'momento'],
   Recetas: ['id', 'nombre', 'grupo', 'estado', 'activa', 'notas'],
   RecetaIngredientes: ['receta_id', 'insumo_id', 'cantidad'],
   VentasDia: ['fecha', 'item_tipo', 'item_id', 'cantidad', 'actualizado_por', 'actualizado_en'],
-  Cierres: ['fecha', 'insumo_id', 'queda', 'actualizado_en']
+  Cierres: ['fecha', 'insumo_id', 'queda', 'actualizado_en'],
+  Equipo: ['nombre', 'pin_hash', 'rol', 'activo']
 };
 
 // Columnas que se guardan como texto plano (y su formato al leerlas si Sheets las convirtió en fecha).
-const FORMATO_TEXTO = { fecha: 'yyyy-MM-dd', hora: 'HH:mm', actualizado_en: 'yyyy-MM-dd HH:mm' };
+const FORMATO_TEXTO = { fecha: 'yyyy-MM-dd', hora: 'HH:mm', actualizado_en: 'yyyy-MM-dd HH:mm', momento: 'yyyy-MM-dd HH:mm:ss' };
 
 const MEDICIONES = ['conteo', 'nivel', 'marcar'];
 const ESTADOS = { nivel: ['lleno', 'medio', 'poco', 'vacío'], marcar: ['hay', 'falta'] };
@@ -50,28 +63,20 @@ const SIGNO_MOVIMIENTO = { entrada: 1, salida: -1, merma: -1, venta: -1, ajuste:
 // Instalación
 // ---------------------------------------------------------------------------
 
+// En true mientras se atiende un pedido de la web (doPost). Cada ejecución de Apps Script empieza de nuevo en false.
+let pedidoWeb = false;
+
+// Las funciones que crean, vacían o rellenan hojas se cortan si las llama un pedido de la web.
+function soloDesdeEditor(nombre) {
+  if (pedidoWeb) throw new Error(nombre + '() solo se ejecuta a mano desde el editor de Apps Script.');
+}
+
 function setup() {
+  soloDesdeEditor('setup');
   const libro = SpreadsheetApp.getActive();
   libro.setSpreadsheetTimeZone(TZ);
 
-  Object.keys(HOJAS).forEach((nombre) => {
-    const cab = HOJAS[nombre];
-    let sh = libro.getSheetByName(nombre);
-    if (!sh) sh = libro.insertSheet(nombre);
-    // Una hoja de una versión anterior con datos no se toca: sus columnas quedarían corridas.
-    if (sh.getLastRow() > 1) {
-      const actual = sh.getRange(1, 1, 1, cab.length).getValues()[0].map(String);
-      if (actual.join('|') !== cab.join('|')) {
-        throw new Error('La hoja "' + nombre + '" tiene columnas de una versión anterior. ' +
-          'Ejecuta empezarDeCero() para borrar todo y cargar los datos iniciales.');
-      }
-    }
-    sh.getRange(1, 1, 1, cab.length).setValues([cab]).setFontWeight('bold');
-    sh.setFrozenRows(1);
-    cab.forEach((col, i) => {
-      if (esColumnaTexto(col)) sh.getRange(2, i + 1, sh.getMaxRows() - 1, 1).setNumberFormat('@');
-    });
-  });
+  Object.keys(HOJAS).forEach((nombre) => prepararHoja(libro, nombre));
 
   // Borra la "Hoja 1" vacía que trae todo Sheet nuevo.
   const vacia = libro.getSheetByName('Hoja 1') || libro.getSheetByName('Sheet1');
@@ -79,17 +84,39 @@ function setup() {
 
   cargarSemilla(); // Semilla.gs: datos de RECETAS.md
 
-  if (!PropertiesService.getScriptProperties().getProperty('PIN')) {
-    console.warn('Falta el PIN: agrégalo en Configuración del proyecto › Propiedades de la secuencia de comandos.');
+  if (!leerTabla('Equipo').some((p) => activo(p.activo))) {
+    console.warn('Todavía no hay nadie en el equipo: agrégalo desde el Sheet con el menú SANTO › Agregar persona.');
   }
   console.log('Listo: hojas creadas y datos iniciales cargados.');
 }
 
-// Borra TODOS los datos de la app (casillas, movimientos, recetas, ventas y cierres) y vuelve a cargar la semilla.
+// Crea la hoja si falta y le pone encabezados y formato. Una hoja con datos y columnas de otra versión no se toca.
+function prepararHoja(libro, nombre) {
+  const cab = HOJAS[nombre];
+  let sh = libro.getSheetByName(nombre);
+  if (!sh) sh = libro.insertSheet(nombre);
+  if (sh.getLastRow() > 1) {
+    const actual = sh.getRange(1, 1, 1, cab.length).getValues()[0].map(String);
+    if (actual.join('|') !== cab.join('|')) {
+      throw new Error('La hoja "' + nombre + '" tiene columnas de una versión anterior. ' +
+        'Ejecuta empezarDeCero() para borrar todo y cargar los datos iniciales.');
+    }
+  }
+  sh.getRange(1, 1, 1, cab.length).setValues([cab]).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  cab.forEach((col, i) => {
+    if (esColumnaTexto(col)) sh.getRange(2, i + 1, sh.getMaxRows() - 1, 1).setNumberFormat('@');
+  });
+  return sh;
+}
+
+// Borra TODOS los datos de la app (casillas, movimientos, recetas, ventas y cierres; el Equipo no) y vuelve a cargar la semilla.
 // No se puede deshacer. Solo se ejecuta a mano desde el editor de Apps Script.
 function empezarDeCero() {
+  soloDesdeEditor('empezarDeCero');
   const libro = SpreadsheetApp.getActive();
-  Object.keys(HOJAS).forEach((nombre) => {
+  // El equipo no se borra: si no, nadie podría volver a entrar.
+  Object.keys(HOJAS).filter((nombre) => nombre !== 'Equipo').forEach((nombre) => {
     const sh = libro.getSheetByName(nombre);
     if (sh) sh.clear();
   });
@@ -110,7 +137,8 @@ class ErrorApp extends Error {
 }
 
 const ACCIONES = {
-  verificarPin: () => ({ ok: true }),
+  verificarPin: (d, ctx) => ({ nombre: ctx.usuario, rol: ctx.rol }),
+  cerrarSesion: cerrarSesion,
   cargarHoy: cargarHoy,
   cambiarEstado: cambiarEstado,
   anotarControl: anotarControl,
@@ -132,6 +160,7 @@ const ACCIONES = {
 };
 
 function doPost(e) {
+  pedidoWeb = true;
   let pedido;
   try {
     pedido = JSON.parse(e.postData.contents);
@@ -139,33 +168,43 @@ function doPost(e) {
     return responder({ ok: false, error: 'Pedido inválido.', code: 'formato' });
   }
   try {
-    validarPin(pedido.pin);
-    asegurarHojas();
+    // El nombre de quien registra sale de su sesión (o de su PIN al ingresar), nunca de lo que manda la pantalla.
+    const persona = identificar(pedido);
+    revisarHojas();
     const accion = ACCIONES[pedido.action];
-    if (!accion) throw new ErrorApp('Acción desconocida: ' + pedido.action, 'accion');
-    const ctx = { usuario: String(pedido.usuario || '').trim().slice(0, 40) || 'sin nombre' };
-    return responder({ ok: true, data: accion(pedido.data || {}, ctx) });
+    if (!accion) throw new ErrorApp('Acción desconocida.', 'accion');
+    const data = pedido.data || {};
+    revisarPermiso(pedido.action, data, persona);
+    const ctx = { usuario: persona.nombre, rol: persona.rol, token: pedido.token };
+    let resultado = accion(data, ctx);
+    // Ingreso con PIN correcto: el celular queda reconocido con un token de sesión.
+    if (persona.filaPorPin) resultado = Object.assign({}, resultado, crearSesion(persona.filaPorPin));
+    return responder({
+      ok: true, data: resultado, quien: { nombre: persona.nombre, rol: persona.rol }, corte: HORA_CORTE_DIA
+    });
   } catch (err) {
     if (err instanceof ErrorApp) return responder({ ok: false, error: err.message, code: err.codigo });
-    console.error(err && err.stack ? err.stack : err);
-    return responder({ ok: false, error: 'Error en el servidor: ' + (err && err.message), code: 'servidor' });
+    // La persona ve un mensaje general con un código; el mismo código y el detalle quedan en Ejecuciones.
+    const codigo = '#' + Utilities.getUuid().replace(/-/g, '').slice(0, 4).toUpperCase();
+    console.error(codigo + ' ' + (err && err.stack ? err.stack : err));
+    return responder({ ok: false, error: 'Ocurrió un error. Intenta de nuevo. Código ' + codigo, code: 'servidor' });
   }
 }
 
-// Deja el Sheet listo sin tener que ejecutar nada a mano:
-//   - si es un Sheet nuevo (faltan hojas), corre setup();
-//   - si todavía es la versión en gramos (Insumos sin "medicion"), borra esos datos de prueba y carga la semilla.
-// Cualquier otra diferencia de columnas no se toca: se avisa, para no borrar datos reales.
-function asegurarHojas() {
+// Antes de cada pedido: cada hoja tiene que existir con sus columnas en orden. Si no, se avisa y no se lee
+// ni se escribe nada. Crear o rehacer hojas solo se hace a mano desde el editor (setup / empezarDeCero).
+function revisarHojas() {
   const libro = SpreadsheetApp.getActive();
-  const insumos = libro.getSheetByName('Insumos');
-  const cab = insumos && insumos.getLastColumn() > 0
-    ? insumos.getRange(1, 1, 1, insumos.getLastColumn()).getValues()[0].map(String) : [];
-  if (cab.length && cab.indexOf('medicion') < 0) {
-    conBloqueo(() => empezarDeCero());
-    return;
-  }
-  if (Object.keys(HOJAS).some((n) => !libro.getSheetByName(n))) conBloqueo(() => setup());
+  Object.keys(HOJAS).forEach((nombre) => {
+    const cab = HOJAS[nombre];
+    const sh = libro.getSheetByName(nombre);
+    const actual = sh && sh.getLastColumn() >= cab.length
+      ? sh.getRange(1, 1, 1, cab.length).getValues()[0].map(String) : [];
+    if (actual.join('|') !== cab.join('|')) {
+      throw new ErrorApp('La pestaña "' + nombre + '" del Sheet no existe o tiene sus columnas cambiadas. ' +
+        'No se guardó nada: avisa a quien administra la app.', 'config');
+    }
+  });
 }
 
 // Abrir la URL en el navegador sirve para comprobar que está publicado.
@@ -177,10 +216,189 @@ function responder(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function validarPin(pin) {
-  const correcto = PropertiesService.getScriptProperties().getProperty('PIN');
-  if (!correcto) throw new ErrorApp('Falta configurar el PIN en el Apps Script.', 'config');
-  if (String(pin || '') !== correcto) throw new ErrorApp('PIN incorrecto.', 'pin');
+// ---------------------------------------------------------------------------
+// Equipo: PIN por persona, roles y límite de intentos
+// ---------------------------------------------------------------------------
+
+const ROLES = ['admin', 'cocina'];
+// Lo que "cocina" no puede hacer. Además, solo un admin corrige días pasados (ver revisarPermiso).
+const SOLO_ADMIN = ['guardarRevision', 'guardarMinimos', 'ajustarStock', 'guardarLote', 'cambiarMedicion',
+  'crearReceta', 'guardarReceta'];
+const CON_FECHA = ['anotarControl', 'guardarVentas'];
+
+const MAX_FALLOS = 10;              // PINs equivocados...
+const VENTANA_FALLOS_S = 10 * 60;   // ...en 10 minutos...
+const BLOQUEO_S = 15 * 60;          // ...bloquean los ingresos 15 minutos.
+const MSJ_BLOQUEO = 'Hubo demasiados intentos con un PIN equivocado. El ingreso está bloqueado por 15 minutos.';
+const MSJ_SESION = 'Tu sesión venció o se cerró. Vuelve a ingresar tu PIN.';
+const DIAS_SESION = 30;
+
+// Devuelve { nombre, rol, filaPorPin } de quien hace el pedido.
+//   - Con token: tiene que ser una sesión vigente de una persona activa. No le afecta el bloqueo por intentos.
+//   - Sin token: solo se acepta para ingresar (verificarPin) con el PIN. Ahí rige el bloqueo y se cuentan los fallos.
+// filaPorPin es la fila de Equipo cuando entró con PIN (para crearle la sesión); con token es null.
+function identificar(pedido) {
+  const equipo = leerTabla('Equipo');
+  const sesiones = limpiarSesiones(equipo);
+  if (pedido.token) {
+    const s = sesiones[claveSesion(pedido.token)];
+    if (!s) throw new ErrorApp(MSJ_SESION, 'sesion');
+    return datosPersona(equipo.find((p) => mismoNombre(p.nombre, s.nombre)), null);
+  }
+  if (pedido.action !== 'verificarPin') throw new ErrorApp(MSJ_SESION, 'sesion');
+
+  const cache = CacheService.getScriptCache();
+  if (cache.get('ingreso:bloqueado')) throw new ErrorApp(MSJ_BLOQUEO, 'bloqueado');
+  const clave = String(pedido.pin || '');
+  const persona = /^\d{6}$/.test(clave)
+    ? equipo.find((p) => activo(p.activo) && pinCoincide(clave, p.pin_hash))
+    : null;
+  if (!persona) {
+    anotarFallo(cache);
+    throw new ErrorApp('PIN incorrecto.', 'pin');
+  }
+  return datosPersona(persona, persona);
+}
+
+function datosPersona(p, filaPorPin) {
+  const rol = String(p.rol || '').trim().toLowerCase();
+  return { nombre: String(p.nombre).trim().slice(0, 40), rol: ROLES.indexOf(rol) >= 0 ? rol : 'cocina', filaPorPin: filaPorPin };
+}
+
+// ---------- Sesiones (dispositivo reconocido) ----------
+// Cada sesión vive en Script Properties como "sesion:<sha256 del token>" → { nombre, pin_hash, vence }.
+// El celular guarda el token; el servidor solo su hash. Una sesión deja de valer si vence, si la persona
+// pasa a activo = no o si le cambian el PIN (su pin_hash ya no coincide).
+
+function claveSesion(token) { return 'sesion:' + hashPin('', String(token)); }
+
+function crearSesion(fila) {
+  const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  const vence = Date.now() + DIAS_SESION * 24 * 60 * 60 * 1000;
+  PropertiesService.getScriptProperties().setProperty(claveSesion(token),
+    JSON.stringify({ nombre: String(fila.nombre).trim(), pin_hash: fila.pin_hash, vence: vence }));
+  return { token: token, vence: vence };
+}
+
+// "Cambiar de usuario": borra en el servidor la sesión con la que se hizo el pedido.
+function cerrarSesion(d, ctx) {
+  if (ctx.token) PropertiesService.getScriptProperties().deleteProperty(claveSesion(ctx.token));
+  return { cerrada: Boolean(ctx.token) };
+}
+
+// Borra las sesiones que ya no valen y devuelve las vigentes. Corre en cada pedido: así una baja
+// (activo = no) anula todas las sesiones de esa persona apenas alguien usa la app.
+function limpiarSesiones(equipo) {
+  const props = PropertiesService.getScriptProperties();
+  const todas = props.getProperties();
+  const ahora = Date.now();
+  const vigentes = {};
+  Object.keys(todas).forEach((k) => {
+    if (k.indexOf('sesion:') !== 0) return;
+    let s = null;
+    try { s = JSON.parse(todas[k]); } catch (e) { /* dañada: se borra */ }
+    const vale = s && s.vence > ahora && equipo.some((p) =>
+      activo(p.activo) && mismoNombre(p.nombre, s.nombre) && p.pin_hash === s.pin_hash);
+    if (vale) vigentes[k] = s;
+    else props.deleteProperty(k);
+  });
+  return vigentes;
+}
+
+// Guarda la hora de cada fallo de los últimos 10 minutos. Al llegar a 10, bloquea y avisa por Telegram.
+function anotarFallo(cache) {
+  const lock = LockService.getScriptLock();
+  const tengo = lock.tryLock(10000);
+  try {
+    const ahora = Date.now();
+    const fallos = JSON.parse(cache.get('ingreso:fallos') || '[]')
+      .filter((t) => t > ahora - VENTANA_FALLOS_S * 1000);
+    fallos.push(ahora);
+    if (fallos.length < MAX_FALLOS) {
+      cache.put('ingreso:fallos', JSON.stringify(fallos), VENTANA_FALLOS_S);
+      return;
+    }
+    cache.put('ingreso:bloqueado', String(ahora), BLOQUEO_S);
+    cache.remove('ingreso:fallos');
+    console.warn('Ingreso bloqueado por ' + MAX_FALLOS + ' PINs equivocados en 10 minutos.');
+    enviarTelegram('Se bloqueó el acceso por intentos fallidos: ' + MAX_FALLOS +
+      ' PINs equivocados en 10 minutos. Durante 15 minutos (desde las ' + horaLima() + ') no se acepta ningún ingreso ' +
+      'nuevo con PIN; los celulares que ya habían entrado siguen funcionando.');
+  } finally {
+    if (tengo) lock.releaseLock();
+  }
+}
+
+function revisarPermiso(accion, data, persona) {
+  if (persona.rol === 'admin') return;
+  if (SOLO_ADMIN.indexOf(accion) >= 0) throw new ErrorApp('Esto lo puede hacer solo un admin.', 'permiso');
+  if (CON_FECHA.indexOf(accion) >= 0 && !vacio(data.fecha) && String(data.fecha) < hoyLima()) {
+    throw new ErrorApp('Corregir un día pasado lo puede hacer solo un admin.', 'permiso');
+  }
+}
+
+function hashPin(sal, pin) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sal + pin, Utilities.Charset.UTF_8);
+  return bytes.map((b) => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
+// pin_hash se guarda como "sal$hash".
+function pinCoincide(pin, guardado) {
+  const partes = String(guardado || '').split('$');
+  return partes.length === 2 && hashPin(partes[0], pin) === partes[1];
+}
+
+// Alta (o cambio de PIN o rol) de una persona. Si ya existe alguien con ese nombre, se actualiza y queda activo.
+// Se usa desde el Sheet (menú SANTO › Agregar persona) o desde otra función del editor.
+function agregarPersona(nombre, pin, rol) {
+  soloDesdeEditor('agregarPersona');
+  nombre = String(nombre || '').trim().slice(0, 40);
+  pin = String(pin || '').trim();
+  rol = String(rol || '').trim().toLowerCase();
+  if (!nombre) throw new Error('Falta el nombre.');
+  if (!/^\d{6}$/.test(pin)) throw new Error('El PIN tiene que ser de 6 números.');
+  if (ROLES.indexOf(rol) < 0) throw new Error('El rol tiene que ser "admin" o "cocina".');
+
+  const libro = SpreadsheetApp.getActive();
+  if (!libro.getSheetByName('Equipo')) prepararHoja(libro, 'Equipo');
+  return conBloqueo(() => {
+    const equipo = leerTabla('Equipo');
+    if (equipo.some((p) => activo(p.activo) && !mismoNombre(p.nombre, nombre) && pinCoincide(pin, p.pin_hash))) {
+      throw new Error('Ese PIN ya lo usa otra persona. Elige otro.');
+    }
+    const sal = Utilities.getUuid().replace(/-/g, '');
+    const fila = { nombre: nombre, pin_hash: sal + '$' + hashPin(sal, pin), rol: rol, activo: 'sí' };
+    const existente = equipo.find((p) => mismoNombre(p.nombre, nombre));
+    if (existente) hoja('Equipo').getRange(existente._fila, 1, 1, HOJAS.Equipo.length).setValues([aFila('Equipo', fila)]);
+    else agregarFilas('Equipo', [fila]);
+    console.log((existente ? 'Actualizado: ' : 'Agregado: ') + nombre + ' (' + rol + ').');
+    return existente ? 'actualizado' : 'agregado';
+  });
+}
+
+// Menú en el Sheet, para dar altas sin escribir el PIN en el código.
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('SANTO').addItem('Agregar persona', 'agregarPersonaDesdeMenu').addToUi();
+}
+
+function agregarPersonaDesdeMenu() {
+  const ui = SpreadsheetApp.getUi();
+  const preguntar = (texto) => {
+    const r = ui.prompt('Agregar persona', texto, ui.ButtonSet.OK_CANCEL);
+    return r.getSelectedButton() === ui.Button.OK ? r.getResponseText().trim() : null;
+  };
+  const nombre = preguntar('Nombre (si ya existe, se le cambia el PIN o el rol):');
+  if (nombre == null) return;
+  const pin = preguntar('PIN de 6 números:');
+  if (pin == null) return;
+  const rol = preguntar('Rol: admin o cocina');
+  if (rol == null) return;
+  try {
+    const r = agregarPersona(nombre, pin, rol);
+    ui.alert('Listo: ' + nombre + ' ' + r + ' como ' + rol.toLowerCase() + '.');
+  } catch (err) {
+    ui.alert('No se pudo: ' + err.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -530,7 +748,8 @@ function cargarMovimientos(d) {
   else throw new ErrorApp('Elige un día o una casilla.', 'datos');
   if (insumoId) movs = movs.filter((m) => m.insumo_id === insumoId);
   // Dentro del mismo minuto se respeta el orden en que se anotaron (al revés: lo último primero).
-  movs.reverse().sort((a, b) => (b.fecha + ' ' + b.hora).localeCompare(a.fecha + ' ' + a.hora));
+  // Se ordena por el momento real, no por día de operación + hora (lo anotado a la 01:30 va después de las 22:00).
+  movs.reverse().sort((a, b) => momentoDe(b).localeCompare(momentoDe(a)));
 
   // Nombres también de casillas desactivadas, para que el historial no quede con ids sueltos.
   const casillas = {};
@@ -683,6 +902,43 @@ function enviarTelegram(texto) {
 }
 
 // ---------------------------------------------------------------------------
+// Respaldo nocturno
+// ---------------------------------------------------------------------------
+
+const CARPETA_RESPALDOS = 'SANTO respaldos';
+const PREFIJO_RESPALDO = 'SANTO respaldo ';
+const DIAS_RESPALDO = 30;
+
+// Se ejecuta una vez a mano desde el editor (pide permiso para Drive). Programa respaldoNocturno() cada día
+// a las 23:30 de Lima (Google lo corre dentro de unos 15 minutos de esa hora) y hace la primera copia ya.
+// Si ya estaba programado, lo reemplaza: no quedan activadores repetidos.
+function instalarRespaldo() {
+  soloDesdeEditor('instalarRespaldo');
+  ScriptApp.getProjectTriggers()
+    .filter((t) => t.getHandlerFunction() === 'respaldoNocturno')
+    .forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('respaldoNocturno').timeBased().everyDays(1).atHour(23).nearMinute(30).inTimezone(TZ).create();
+  respaldoNocturno();
+  console.log('Listo: respaldo programado cada noche en la carpeta "' + CARPETA_RESPALDOS + '".');
+}
+
+// Copia el Sheet a "SANTO respaldos" y manda a la papelera las copias de más de 30 días.
+// Solo toca archivos de esa carpeta cuyo nombre empieza con "SANTO respaldo ".
+function respaldoNocturno() {
+  soloDesdeEditor('respaldoNocturno');
+  const carpetas = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
+  const carpeta = carpetas.hasNext() ? carpetas.next() : DriveApp.createFolder(CARPETA_RESPALDOS);
+  DriveApp.getFileById(SpreadsheetApp.getActive().getId()).makeCopy(PREFIJO_RESPALDO + ahoraLima(), carpeta);
+
+  const limite = new Date(Date.now() - DIAS_RESPALDO * 24 * 60 * 60 * 1000);
+  const archivos = carpeta.getFiles();
+  while (archivos.hasNext()) {
+    const a = archivos.next();
+    if (a.getName().indexOf(PREFIJO_RESPALDO) === 0 && a.getDateCreated() < limite) a.setTrashed(true);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Recetas (lo que lleva UN pan)
 // ---------------------------------------------------------------------------
 
@@ -733,9 +989,11 @@ function guardarReceta(d) {
       if (ids.indexOf(i.insumo_id) < 0) throw new ErrorApp('Elige un ingrediente que se cuente (porciones o unidades).', 'datos');
       porInsumo[i.insumo_id] = redondear((porInsumo[i.insumo_id] || 0) + i.cantidad);
     });
-    const otras = leerTabla('RecetaIngredientes').filter((i) => i.receta_id !== recetaId);
-    const nuevas = Object.keys(porInsumo).map((id) => ({ receta_id: recetaId, insumo_id: id, cantidad: porInsumo[id] }));
-    reescribirTabla('RecetaIngredientes', otras.concat(nuevas));
+    // Solo se tocan las filas de esta receta.
+    borrarFilas('RecetaIngredientes', 'receta_id', (v) => v === recetaId);
+    agregarFilas('RecetaIngredientes', Object.keys(porInsumo).map((id) => ({
+      receta_id: recetaId, insumo_id: id, cantidad: porInsumo[id]
+    })));
     return cargarRecetas();
   });
 }
@@ -796,11 +1054,13 @@ function guardarVentas(d, ctx) {
       }
     });
 
+    // Solo se tocan las filas de esta fecha: sus ventas y los descuentos que esas ventas hicieron.
     const ahora = ahoraLima();
-    reescribirTabla('VentasDia', leerTabla('VentasDia').filter((v) => v.fecha !== fecha).concat(lista.map((v) => ({
+    borrarFilas('VentasDia', 'fecha', (v) => v === fecha);
+    agregarFilas('VentasDia', lista.map((v) => ({
       fecha: fecha, item_tipo: v.item_tipo, item_id: v.item_id, cantidad: v.cantidad,
       actualizado_por: ctx.usuario, actualizado_en: ahora
-    }))));
+    })));
 
     const origen = 'venta:' + fecha;
     const hora = horaLima();
@@ -808,9 +1068,9 @@ function guardarVentas(d, ctx) {
       id: nuevoId('mov'), fecha: fecha, hora: hora, insumo_id: id, tipo: 'venta',
       cantidad: redondear(descuentos[id]), origen: origen, nota: 'Ventas del día', usuario: ctx.usuario
     }));
-    const movimientos = leerTabla('Movimientos');
-    const anteriores = movimientos.filter((m) => m.origen === origen).map((m) => m.insumo_id);
-    reescribirTabla('Movimientos', movimientos.filter((m) => m.origen !== origen).concat(nuevos));
+    const anteriores = movimientosDeFecha(fecha).filter((m) => m.origen === origen).map((m) => m.insumo_id);
+    borrarFilas('Movimientos', 'origen', (v) => v === origen);
+    agregarFilas('Movimientos', nuevos);
     recalcularStocks();
     const posteriores = actualizarCierres(fecha, anteriores.concat(nuevos.map((m) => m.insumo_id)));
 
@@ -853,7 +1113,7 @@ function aObjeto(cab, r, fila) {
 
 function esColumnaTexto(col) {
   return Boolean(FORMATO_TEXTO[col]) || col === 'id' || col.slice(-3) === '_id' ||
-    ['origen', 'gramaje_ref', 'estado_actual', 'nota'].indexOf(col) >= 0;
+    ['origen', 'gramaje_ref', 'estado_actual', 'nota', 'pin_hash'].indexOf(col) >= 0;
 }
 
 // Si Sheets convirtió una fecha u hora en Date, la vuelve a texto en hora de Lima.
@@ -869,6 +1129,11 @@ function aFila(nombre, obj) {
 
 function agregarFilas(nombre, objs) {
   if (!objs.length) return;
+  // Todo movimiento queda con el momento real en que se anotó, venga de donde venga.
+  if (nombre === 'Movimientos') {
+    const ahora = momentoReal();
+    objs.forEach((o) => { if (!o.momento) o.momento = ahora; });
+  }
   const sh = hoja(nombre);
   const desde = sh.getLastRow() + 1;
   const faltan = desde + objs.length - 1 - sh.getMaxRows();
@@ -876,12 +1141,27 @@ function agregarFilas(nombre, objs) {
   sh.getRange(desde, 1, objs.length, HOJAS[nombre].length).setValues(objs.map((o) => aFila(nombre, o)));
 }
 
-// Borra todas las filas de datos y escribe las que se pasan (para reemplazar sin dejar huecos).
-function reescribirTabla(nombre, objs) {
+// Borra solo las filas cuya columna `col` cumple `coincide`. Lee únicamente esa columna y borra
+// de abajo hacia arriba, por bloques seguidos. Nunca vacía la hoja entera. Devuelve cuántas borró.
+function borrarFilas(nombre, col, coincide) {
   const sh = hoja(nombre);
   const ultima = sh.getLastRow();
-  if (ultima > 1) sh.getRange(2, 1, ultima - 1, HOJAS[nombre].length).clearContent();
-  agregarFilas(nombre, objs);
+  if (ultima < 2) return 0;
+  const filas = [];
+  sh.getRange(2, HOJAS[nombre].indexOf(col) + 1, ultima - 1, 1).getValues().forEach((r, k) => {
+    if (coincide(normalizar(col, r[0]))) filas.push(k + 2);
+  });
+  if (!filas.length) return 0;
+  // Sheets no deja borrar todas las filas debajo del encabezado: si fuera el caso, primero agrega una vacía.
+  if (sh.getMaxRows() - filas.length < 2) sh.insertRowsAfter(sh.getMaxRows(), 1);
+  let k = filas.length - 1;
+  while (k >= 0) {
+    const fin = filas[k];
+    while (k > 0 && filas[k - 1] === filas[k] - 1) k--;
+    sh.deleteRows(filas[k], fin - filas[k] + 1);
+    k--;
+  }
+  return filas.length;
 }
 
 // Toda escritura pasa por aquí para que dos personas guardando a la vez no se pisen.
@@ -900,9 +1180,14 @@ function conBloqueo(fn) {
 // Utilidades
 // ---------------------------------------------------------------------------
 
-function hoyLima() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
-function horaLima() { return Utilities.formatDate(new Date(), TZ, 'HH:mm'); }
-function ahoraLima() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'); }
+// "Hoy" es el día de operación: antes de HORA_CORTE_DIA todavía es el día anterior (Lima no cambia de horario).
+function hoyLima() { return Utilities.formatDate(new Date(Date.now() - HORA_CORTE_DIA * 60 * 60 * 1000), TZ, 'yyyy-MM-dd'); }
+function horaLima() { return Utilities.formatDate(new Date(Date.now()), TZ, 'HH:mm'); }
+function ahoraLima() { return Utilities.formatDate(new Date(Date.now()), TZ, 'yyyy-MM-dd HH:mm'); }
+// Fecha calendario y hora reales de Lima, con segundos (sin el corte del día de operación).
+function momentoReal() { return Utilities.formatDate(new Date(Date.now()), TZ, 'yyyy-MM-dd HH:mm:ss'); }
+// Movimientos sin momento (no debería haber) se ordenan con su fecha y hora.
+function momentoDe(m) { return m.momento || (m.fecha + ' ' + m.hora); }
 
 function validarFecha(f) {
   const s = String(f || '');
@@ -920,7 +1205,10 @@ function validarNumero(v, nombre) {
 function vacio(v) { return v === '' || v == null; }
 function num(v) { return Number(v) || 0; }
 function redondear(n) { return Math.round(n * 1000) / 1000; }
-function activo(v) { return v !== false && String(v).toUpperCase() !== 'FALSE'; }
+function activo(v) {
+  const s = String(v).trim().toUpperCase();
+  return v !== false && s !== 'FALSE' && s !== 'NO';
+}
 function sinVacios(lista) { return lista.filter(Boolean); }
 function capital(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 function unidadTexto(unidad, n) {
