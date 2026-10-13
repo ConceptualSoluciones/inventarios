@@ -1,0 +1,5 @@
+# Los scripts de bash y las partes del Apps Script siempre con saltos de línea LF:
+# armar.sh compara Code.gs byte a byte y bash no corre scripts con CRLF.
+*.sh text eol=lf
+apps-script/*.gs text eol=lf
+apps-script/partes/*.gs text eol=lf
