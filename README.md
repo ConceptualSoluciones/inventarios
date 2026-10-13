@@ -2,6 +2,30 @@
 
 App interna de inventario, recetas y control diario de SANTO. La página es un sitio estático; los datos viven en un Google Sheet y los atiende un Apps Script (`apps-script/`).
 
+## Cómo está organizado el código
+
+Cada página tiene su propio archivo en la pantalla y en el servidor. Un cambio en una página no toca las demás.
+
+| Página | Pantalla | Servidor |
+| --- | --- | --- |
+| Hoy | `js/paginas/hoy.js` | `apps-script/partes/hoy.gs` |
+| Compras | `js/paginas/compras.js` | `apps-script/partes/compras.gs` |
+| Producción | `js/paginas/produccion.js` | `apps-script/partes/produccion.gs` |
+| Cierre (por ahora, ventas) | `js/paginas/cierre.js` | `apps-script/partes/cierre.gs` |
+| Inventario | `js/paginas/inventario.js` | `apps-script/partes/inventario.gs` |
+| Pendientes de compra | `js/paginas/pendientes.js` | (usa lo de Inventario) |
+| Recetas | `js/paginas/recetas.js` | `apps-script/partes/recetas.gs` |
+| Productos | `js/paginas/productos.js` | `apps-script/partes/productos.gs` |
+| Revisión inicial | `js/paginas/revision.js` | `apps-script/partes/revision.gs` |
+| Movimientos | `js/paginas/movimientos.js` | `apps-script/partes/movimientos.gs` |
+| Ajustes | `js/paginas/ajustes.js` | `apps-script/partes/ajustes.gs` |
+| Más / Ingreso con PIN | `js/paginas/mas.js`, `js/paginas/ingreso.js` | `apps-script/partes/equipo.gs` |
+
+- **Piezas comunes de la pantalla** (`js/base/`): formatos de cantidades, buscador, botones de número, avisos y niveles al ojo. `js/app.js` solo abre la página que corresponde.
+- **Piezas comunes del servidor** (`apps-script/partes/`): `base.gs` (forma de las hojas y entrada web), `equipo.gs` (PIN, roles y sesiones), `hojas.gs` (leer y escribir el Sheet), `stock.gs` (movimientos y stock) y `avisos.gs` (Telegram y respaldo). Los datos iniciales están en `semilla.gs`.
+- **En el Apps Script se pega un solo archivo:** `apps-script/Code.gs`. Se arma juntando las partes con `bash apps-script/armar.sh`; no se edita a mano.
+- **Pruebas:** `bash pruebas/correr.sh` recorre la app en modo demo como admin y como cocina. Nunca se conecta al Apps Script real.
+
 ## Cómo se usa en el día a día
 
 1. **Revisión inicial (una sola vez).** Cuando la app empieza a usarse, se cuenta todo lo que hay y se anota en *Más › Revisión inicial*. Ese es el punto de partida. Después no se vuelve a contar todo cada día.
