@@ -70,9 +70,12 @@ const SEMILLA = {
 
   // Insumos solo de producción: por porción (la unidad se corrige en Productos). Su id sale del nombre ("ins-" + slug).
   soloProduccion: [
-    'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido', 'Ajinomoto', 'Sal', 'Pimienta negra', 'Comino', 'Laurel',
-    'Canela china', 'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
-    'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate',
+    'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido',
+    'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
+    'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate'
+  ],
+  // Condimentos de solo producción: al ojo (decidido el 12/10/2026). Su id sale del nombre.
+  soloProduccionOjo: ['Sal', 'Pimienta negra', 'Comino', 'Ajinomoto', 'Laurel', 'Canela china',
     'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
   ],
   // Solo producción, pero crudo comprado: por gramos. [nombre]
@@ -136,6 +139,10 @@ function cargarSemilla() {
   SEMILLA.soloProduccion.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
     if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'presentacion', 'porción', ''));
+  });
+  SEMILLA.soloProduccionOjo.forEach((nombre) => {
+    const id = 'ins-' + slug(nombre);
+    if (!existentes[id]) nuevos.push(Object.assign(producto(id, nombre, 'Solo producción', 'ojo', '', ''), { revisar: '' }));
   });
   SEMILLA.soloProduccionGramos.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);

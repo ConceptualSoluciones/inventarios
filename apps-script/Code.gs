@@ -69,6 +69,8 @@ const SIGNO_MOVIMIENTO = {
 
 // Lo que tiene stock: todo menos lo que va al ojo.
 function seCuenta(i) { return i.medicion !== 'ojo'; }
+// Lo que se compra: por unidad o por gramos. Lo porcionado (presentacion) sale de Producción.
+function seCompra(i) { return i.medicion === 'unidad' || i.medicion === 'gramos'; }
 
 // ---------------------------------------------------------------------------
 // Instalación
@@ -643,7 +645,7 @@ function cargarCompras() {
   return { fecha: fecha, compras: compras, insumos: insumosActivos() };
 }
 
-// Compras: lo que entró. Suma al inventario. El precio total de cada compra es opcional.
+// Compras: lo que entró, por unidad o por gramos. Suma al inventario. El precio total de cada compra es opcional.
 function registrarCompras(d, ctx) {
   const compras = (Array.isArray(d.compras) ? d.compras : [])
     .map((e) => ({
@@ -655,9 +657,12 @@ function registrarCompras(d, ctx) {
   if (!compras.length) throw new ErrorApp('Escribe al menos una cantidad.', 'datos');
 
   return conBloqueo(() => {
-    const ids = insumosActivos().filter(seCuenta).map((i) => i.id);
+    const productos = {};
+    insumosActivos().forEach((i) => { productos[i.id] = i; });
     compras.forEach((e) => {
-      if (ids.indexOf(e.insumo_id) < 0) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
+      const p = productos[e.insumo_id];
+      if (!p) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
+      if (!seCompra(p)) throw new ErrorApp(p.nombre + ' no se compra: sale de Producción o va al ojo.', 'datos');
     });
     const hora = horaLima();
     agregarFilas('Movimientos', compras.map((e) =>

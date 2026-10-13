@@ -241,8 +241,13 @@
     ['presentacion', 'Por porción o presentación'], ['ojo', 'Al ojo (lleno · medio · bajo · vacío)']];
   const seCuenta = (i) => i.medicion !== 'ojo';
   const alOjo = (i) => i.medicion === 'ojo';
+  // Lo que se compra: por unidad o por gramos. Lo porcionado sale de Producción.
+  const seCompra = (i) => i.medicion === 'unidad' || i.medicion === 'gramos';
   const NIVELES = [['lleno', 'Lleno'], ['medio', 'Medio'], ['bajo', 'Bajo'], ['vacío', 'Vacío']];
   const NIVELES_ALERTA = ['bajo', 'vacío'];
+  // Mismos colores que el mensaje de WhatsApp.
+  const EMOJI_NIVEL = { lleno: '🟢', medio: '🟡', bajo: '🔴', 'vacío': '⚫' };
+  const textoNivel = (nivel) => `${EMOJI_NIVEL[nivel] || ''} ${capital(nivel)}`.trim();
   const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
   // Lo que hay de un producto, en su unidad.
@@ -341,14 +346,11 @@
       selector.el);
   }
 
-  // Para quien no es admin: el nivel se ve, pero lo marca un admin en el cierre.
-  function filaNivelSoloVer(item) {
-    const alerta = nivelBajo(item);
+  // Nivel solo para ver (Inventario): se marca en el cierre o en la Revisión inicial.
+  function filaNivelVer(item) {
     return h('div', { class: 'fila', 'data-buscar': textoBusqueda(item) },
       h('span', { class: 'fila-etiqueta' }, item.nombre),
-      h('span', { class: 'nivel-texto' + (alerta ? ' nivel-texto--alerta' : '') },
-        alerta && h('span', { class: 'punto', 'aria-hidden': 'true' }),
-        capital(item.estado_actual)));
+      h('span', { class: 'nivel-texto' + (nivelBajo(item) ? ' nivel-texto--alerta' : '') }, textoNivel(item.estado_actual)));
   }
 
   function grupoInsumos(titulo, hijos, clase) {
@@ -397,31 +399,6 @@
       : h('p', { class: 'nota' }, 'Todo en orden.'));
   }
 
-  // Se marca al tocar y se guarda por detrás. Si falla, vuelve a lo último que se guardó.
-  function selectorEnVivo(item) {
-    let guardado = item.estado_actual;
-    let mostrado = guardado;
-    let ultimo = 0;
-    const selector = selectorNivel(item, guardado, async (v) => {
-      if (v === mostrado) return;
-      mostrado = v;
-      selector.marcar(v);
-      const pedido = ++ultimo;
-      try {
-        const r = await Api.cambiarNivel({ insumo_id: item.id, estado: v });
-        if (pedido !== ultimo) return;
-        guardado = r.insumo ? r.insumo.estado_actual : v;
-        item.estado_actual = guardado;
-      } catch (err) {
-        if (pedido !== ultimo) return;
-        mostrado = guardado;
-        selector.marcar(guardado);
-        aviso(mensajeError(err, MSJ_GUARDAR));
-      }
-    });
-    return selector;
-  }
-
   // ---------- Pendientes de compra ----------
 
   function vistaPorComprar(main) {
@@ -434,7 +411,7 @@
     cargarEn(zona, Api.cargarInventario, ({ insumos }) => {
       estado.insumos = insumos;
       const nota = (i) => (alOjo(i)
-        ? `está en ${capital(i.estado_actual)}`
+        ? `está en ${textoNivel(i.estado_actual)}`
         : `quedan ${mostrarTexto(i.stock_actual, i)} · mínimo ${mostrarTexto(i.stock_minimo, i)}`);
       const grupos = agruparPorCategoria(porComprar(insumos)).map(({ categoria, items }) =>
         grupoInsumos(categoria, items.map((i) => h('div', { class: 'fila' },
@@ -465,11 +442,8 @@
 
     const barras = graficaConteo(insumos.filter(seCuenta));
 
-    // Al ojo: el admin lo marca al tocar y se guarda en el momento; cocina solo lo ve.
-    const admin = Api.sesion.esAdmin;
-    const conNivel = (item) => (admin ? filaNivel(item, selectorEnVivo(item)) : filaNivelSoloVer(item));
     const ojo = agruparPorCategoria(insumos.filter(alOjo)).map(({ categoria, items }) => {
-      const filas = items.map(conNivel);
+      const filas = items.map(filaNivelVer);
       if (categoria !== 'Solo producción') return grupoInsumos(categoria, filas);
       // Es la lista más larga y se usa menos: va plegada.
       return h('details', { class: 'grupo plegable' },
@@ -482,7 +456,7 @@
         h('p', { class: 'pequeno texto-suave' }, 'Cada grupo usa su propia escala. La rayita roja marca el mínimo.')),
       ojo.length && h('section', { class: 'grupos' },
         h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Al ojo'),
-        !admin && h('p', { class: 'pequeno texto-suave' }, 'Los niveles los marca un admin en el cierre.'),
+        h('p', { class: 'pequeno texto-suave' }, 'Solo para ver: el nivel se marca en el cierre.'),
         ...ojo)
     ]));
     zona.replaceChildren(buscador(lista, 'buscar-inventario'), lista);
@@ -716,9 +690,9 @@
 
   function pintarCompras(zona, datos) {
     estado.insumos = datos.insumos;
-    const insumos = datos.insumos.filter(seCuenta);
+    const insumos = datos.insumos.filter(seCompra);
     if (!insumos.length) {
-      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay productos que se cuenten.'));
+      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay productos que se compren por unidad o por gramos.'));
       return;
     }
     const campos = [];
