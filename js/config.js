@@ -2,5 +2,5 @@
 // Pega aquí la URL de la aplicación web de Apps Script (termina en /exec).
 // Si se deja vacía, la app funciona en "modo demo" con datos de prueba.
 window.SANTO_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwHQFidqnczGwpSuWf8nGOUMUn9gPpBKjvmNzCH2yoGdIhS7FQ451Frqf3qFWt7SiCf/exec'
+  API_URL: 'https://script.google.com/macros/s/AKfycbzmUNT-eFxMiYWBT891_TN9joImO0WloGBgepEbdwbc74U5wsgvAXiQAQyGEZ6pB45-pA/exec'
 };
