@@ -162,6 +162,8 @@ const ACCIONES = {
   guardarProducto: guardarProducto,
   cargarHoy: cargarHoy,
   cargarCompras: cargarCompras,
+  cargarProduccion: cargarProduccion,
+  registrarProduccion: registrarProduccion,
   registrarCompras: registrarCompras,
   guardarRevision: guardarRevision,
   cargarMovimientos: cargarMovimientos,
@@ -614,14 +616,14 @@ function movimientosDeFecha(fecha) {
 function cargarHoy() {
   const fecha = hoyLima();
   const movs = movimientosDeFecha(fecha);
-  const productos = (tipo) => movs.filter((m) => m.tipo === tipo).map((m) => m.insumo_id)
-    .filter((id, k, lista) => lista.indexOf(id) === k).length;
+  const distintos = (lista) => lista.map((m) => m.insumo_id).filter((id, k, ids) => ids.indexOf(id) === k).length;
   return {
     fecha: fecha,
     insumos: insumosActivos(),
     dia: {
-      compras: productos('compra'),
-      produccion: productos('produccion_salida'),
+      compras: distintos(movs.filter((m) => m.tipo === 'compra')),
+      // Lo que salió de Producción (lo preparado al ojo deja un movimiento "nivel" con origen de producción).
+      produccion: distintos(movs.filter((m) => esProduccion(m) && m.tipo !== 'produccion_usado')),
       // El cierre deja ventas (origen "venta:<fecha>"), salidas a Habemus o merma.
       cierre: movs.some((m) => String(m.origen).indexOf('venta:') === 0 || m.tipo === 'salida_habemus' || m.tipo === 'merma')
     }
@@ -669,6 +671,84 @@ function registrarCompras(d, ctx) {
       movimiento(e.insumo_id, 'compra', e.cantidad, ctx, { hora: hora, precio: e.precio })));
     recalcularStocks();
     return Object.assign({ guardadas: compras.length }, cargarCompras());
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Producción: lo que se usó (resta) y lo que salió (suma). Las cantidades las pone quien produce.
+// ---------------------------------------------------------------------------
+
+// Lo que sale de Producción: lo porcionado (porciones, jarras…) y lo que se prepara en casa y va al ojo
+// (salsas, aderezos, chalaquita, sarsa). Al salir, eso queda en "lleno".
+const CATEGORIAS_PREPARADAS_AL_OJO = ['Salsas y aderezos', 'Complementos'];
+function sePrepara(i) {
+  return i.medicion === 'presentacion' || (i.medicion === 'ojo' && CATEGORIAS_PREPARADAS_AL_OJO.indexOf(i.categoria) >= 0);
+}
+const esProduccion = (m) => String(m.origen).indexOf('produccion:') === 0;
+
+// Las producciones de hoy, cada una con lo que se usó y lo que salió.
+function cargarProduccion() {
+  const fecha = hoyLima();
+  const productos = {};
+  leerTabla('Insumos').forEach((i) => { productos[i.id] = i; });
+  const grupos = {};
+  movimientosDeFecha(fecha).filter(esProduccion).forEach((m) => {
+    const g = grupos[m.origen] || (grupos[m.origen] = { hora: m.hora, usuario: m.usuario, momento: momentoDe(m), usados: [], salidas: [] });
+    const i = productos[m.insumo_id] || {};
+    const item = {
+      insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id, unidad: i.unidad || '',
+      cantidad: vacio(m.cantidad) ? '' : num(m.cantidad), nivel: m.tipo === 'nivel' ? m.nota : ''
+    };
+    (m.tipo === 'produccion_usado' ? g.usados : g.salidas).push(item);
+  });
+  const producciones = Object.keys(grupos).map((k) => grupos[k]).sort((a, b) => a.momento.localeCompare(b.momento));
+  return { fecha: fecha, producciones: producciones, insumos: insumosActivos() };
+}
+
+// usados: [{ insumo_id, cantidad }] de lo que se compra · salidas: [{ insumo_id, cantidad }] de lo que se prepara
+// (lo que va al ojo no lleva cantidad). Todos los movimientos de una producción comparten el origen "produccion:<id>".
+function registrarProduccion(d, ctx) {
+  const leer = (lista, nombre) => (Array.isArray(lista) ? lista : []).map((e) => ({
+    insumo_id: String(e.insumo_id || ''), cantidad: vacio(e.cantidad) ? 0 : validarNumero(e.cantidad, nombre)
+  }));
+  const usados = leer(d.usados, 'lo que usaste').filter((e) => e.cantidad > 0);
+  const salidas = leer(d.salidas, 'lo que salió');
+
+  return conBloqueo(() => {
+    const porId = {};
+    leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
+    const producto = (e) => {
+      const p = porId[e.insumo_id];
+      if (!p || !activo(p.activo)) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
+      return p;
+    };
+    usados.forEach((e) => {
+      const p = producto(e);
+      if (!seCompra(p)) throw new ErrorApp(p.nombre + ' no se puede anotar como usado: solo lo que se compra.', 'datos');
+    });
+    const salen = salidas.filter((e) => {
+      const p = producto(e);
+      if (!sePrepara(p)) throw new ErrorApp(p.nombre + ' no sale de Producción.', 'datos');
+      return p.medicion === 'ojo' || e.cantidad > 0;
+    });
+    if (!salen.length) throw new ErrorApp('Escribe lo que salió de la producción.', 'datos');
+
+    const extra = { hora: horaLima(), origen: 'produccion:' + Utilities.getUuid().slice(0, 8) };
+    const colNivel = HOJAS.Insumos.indexOf('estado_actual') + 1;
+    const movs = usados.map((e) => movimiento(e.insumo_id, 'produccion_usado', e.cantidad, ctx, extra));
+    salen.forEach((e) => {
+      const p = porId[e.insumo_id];
+      if (p.medicion !== 'ojo') {
+        movs.push(movimiento(e.insumo_id, 'produccion_salida', e.cantidad, ctx, extra));
+        return;
+      }
+      // Lo que se prepara al ojo (una salsa nueva) queda lleno.
+      hoja('Insumos').getRange(p._fila, colNivel).setValue(NIVEL_INICIAL);
+      movs.push(movimiento(e.insumo_id, 'nivel', '', ctx, Object.assign({ nota: NIVEL_INICIAL }, extra)));
+    });
+    agregarFilas('Movimientos', movs);
+    recalcularStocks();
+    return cargarProduccion();
   });
 }
 

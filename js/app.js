@@ -295,7 +295,7 @@
   // Apertura → Producción → Cierre. El cierre lo hace un admin: cocina lo ve, pero no lo abre.
   const PASOS = [
     { id: 'compras', nombre: 'Compras', etiqueta: '1 · apertura', color: 'navy', ilustracion: 'ventas', href: '#compras' },
-    { id: 'produccion', nombre: 'Producción', etiqueta: '2 · en cocina', color: 'olive', ilustracion: 'produccion', href: null },
+    { id: 'produccion', nombre: 'Producción', etiqueta: '2 · en cocina', color: 'olive', ilustracion: 'produccion', href: '#produccion' },
     { id: 'cierre', nombre: 'Cierre', etiqueta: '3 · en la noche', color: 'sand', ilustracion: 'inventario', href: '#ventas', soloAdmin: true }
   ];
 
@@ -313,7 +313,9 @@
     if (paso.id === 'compras') {
       return dia.compras ? `Anotado: ${dia.compras} ${dia.compras === 1 ? 'producto' : 'productos'}` : 'Todavía no se anotó nada';
     }
-    if (paso.id === 'produccion') return 'Próximamente';
+    if (paso.id === 'produccion') {
+      return dia.produccion ? `Salió: ${dia.produccion} ${dia.produccion === 1 ? 'producto' : 'productos'}` : 'Todavía no se anotó nada';
+    }
     if (!Api.sesion.esAdmin) return dia.cierre ? 'Hecho · lo hace un admin' : 'Lo hace un admin';
     return dia.cierre ? 'Hecho' : 'Pendiente';
   }
@@ -751,6 +753,136 @@
       compradoHoy(datos.compras),
       buscador(lista, 'buscar-compras'),
       lista,
+      h('div', { class: 'pie-accion' }, btn)
+    ]));
+  }
+
+  // ---------- Producción: lo que se usó (resta) y lo que salió (suma) ----------
+
+  // Lo que sale: lo porcionado y lo que se prepara en casa y va al ojo. Igual que sePrepara en Code.gs.
+  const CATEGORIAS_PREPARADAS_AL_OJO = ['Salsas y aderezos', 'Complementos'];
+  const sePrepara = (i) => i.medicion === 'presentacion' || (alOjo(i) && CATEGORIAS_PREPARADAS_AL_OJO.includes(i.categoria));
+
+  function vistaProduccion(main) {
+    const zona = h('div', { class: 'hoy' }, esqueletoFilas(6));
+    main.replaceChildren(
+      volver('#hoy', 'Hoy'),
+      h('h1', { class: 'titulo' }, 'Producción'),
+      h('p', { class: 'texto-suave' }, 'Anota lo que usaste y lo que salió. Las cantidades las pones tú cada vez: lo usado se resta y lo que salió se suma.'),
+      zona);
+    cargarEn(zona, Api.cargarProduccion, (datos) => pintarProduccion(zona, datos));
+  }
+
+  // "3 kg de Carne de res" o, si va al ojo, "Golf ahumada (🟢 Lleno)".
+  const textoProducido = (it) => (it.nivel ? `${it.nombre} (${textoNivel(it.nivel)})` : `${cantidadTexto(it.cantidad, it.unidad)} de ${it.nombre}`);
+
+  function produccionesHoy(producciones) {
+    if (!producciones.length) return null;
+    return h('section', { class: 'grupo' },
+      h('h2', { class: 'subtitulo' }, 'Ya anotado hoy'),
+      h('div', { class: 'lista-items' }, producciones.map((p) => h('div', { class: 'fila' },
+        h('span', { class: 'fila-etiqueta' }, p.salidas.map(textoProducido).join(', '),
+          h('span', { class: 'fila-nota' }, sinVacios([
+            p.hora, p.usuario,
+            p.usados.length ? `usó ${p.usados.map(textoProducido).join(', ')}` : 'sin nada usado anotado'
+          ]).join(' · ')))))));
+  }
+
+  // Hoja para elegir un producto, con buscador (también encuentra por alias).
+  function elegirProducto(titulo, productos, alElegir) {
+    const lista = h('div', { class: 'grupos' }, agruparPorCategoria([...productos]).map(({ categoria, items }) =>
+      h('section', { class: 'grupo', 'data-grupo': '' },
+        h('h2', { class: 'subtitulo' }, categoria),
+        h('div', { class: 'lista' }, items.map((i) => h('button', {
+          type: 'button', class: 'lista-fila', 'data-buscar': textoBusqueda(i),
+          onclick: () => { Hoja.cerrar(); alElegir(i); }
+        }, h('span', { class: 'lista-texto' },
+          h('strong', null, i.nombre),
+          h('span', { class: 'pequeno texto-suave' }, alOjo(i) ? textoNivel(i.estado_actual) : `hay ${mostrarTexto(i.stock_actual, i)}`))))))));
+    const busca = buscador(lista, 'buscar-elegir');
+    Hoja.abrir(h('div', { class: 'formulario' },
+      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, titulo),
+      productos.length ? busca : h('p', { class: 'vacio' }, 'No hay productos para elegir.'),
+      lista), { foco: productos.length ? busca : null });
+  }
+
+  function pintarProduccion(zona, datos) {
+    estado.insumos = datos.insumos;
+    const usados = [];
+    const salidas = [];
+    const listaUsados = h('div', { class: 'lista-items' });
+    const listaSalidas = h('div', { class: 'lista-items' });
+
+    // Una fila por producto elegido: su cantidad (lo que va al ojo no lleva: queda en Lleno) y "Quitar".
+    function agregar(lista, filas, item) {
+      if (filas.some((f) => f.item.id === item.id)) { aviso(`${item.nombre} ya está en la lista.`); return; }
+      const id = `pro-${filas === usados ? 'u' : 's'}-${item.id}`;
+      const campo = alOjo(item) ? null : campoNumero({ etiqueta: item.nombre, id });
+      const fila = { item, campo };
+      const nota = alOjo(item) ? `queda en ${textoNivel('lleno')}` : `hay ${mostrarTexto(item.stock_actual, item)} · en ${unidadDeIngreso(item)}`;
+      const el = h('div', { class: 'ing-bloque' },
+        h('div', { class: 'fila-estado-cabeza' },
+          h('label', { class: 'fila-etiqueta', for: campo ? id : null }, item.nombre, h('span', { class: 'fila-nota' }, nota)),
+          h('button', {
+            type: 'button', class: 'btn btn-secundario btn-chico', 'aria-label': `Quitar ${item.nombre}`,
+            onclick: () => { filas.splice(filas.indexOf(fila), 1); el.remove(); }
+          }, 'Quitar')),
+        campo && campo.el);
+      filas.push(fila);
+      lista.append(el);
+      if (campo) campo.input.focus();
+    }
+
+    const btnUsado = h('button', {
+      type: 'button', class: 'btn btn-secundario btn-ancho',
+      onclick: () => elegirProducto('¿Qué usaste?', datos.insumos.filter(seCompra), (i) => agregar(listaUsados, usados, i))
+    }, '+ Agregar lo que usé');
+    const btnSalida = h('button', {
+      type: 'button', class: 'btn btn-secundario btn-ancho',
+      onclick: () => elegirProducto('¿Qué salió?', datos.insumos.filter(sePrepara), (i) => agregar(listaSalidas, salidas, i))
+    }, '+ Agregar lo que salió');
+
+    const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar producción');
+    // Devuelve la lista para el servidor o null si falta una cantidad (y pone el foco ahí).
+    function leer(filas) {
+      const lista = [];
+      for (const { item, campo } of filas) {
+        if (!campo) { lista.push({ insumo_id: item.id }); continue; }
+        const v = campo.valor;
+        if (!(Number.isFinite(v) && v > 0)) { aviso(`Escribe cuánto de ${item.nombre}.`); campo.input.focus(); return null; }
+        lista.push({ insumo_id: item.id, cantidad: redondear(v) });
+      }
+      return lista;
+    }
+    async function guardar() {
+      if (!salidas.length) { aviso('Agrega lo que salió de la producción.'); return; }
+      const u = leer(usados);
+      if (!u) return;
+      const s = leer(salidas);
+      if (!s) return;
+      ocupado(btn, 'Guardando…');
+      try {
+        const r = await Api.registrarProduccion({ usados: u, salidas: s });
+        pintarProduccion(zona, r);
+        window.scrollTo(0, 0);
+        aviso('Producción guardada');
+      } catch (err) {
+        // No se limpia nada: lo elegido y lo escrito sigue ahí.
+        aviso(mensajeError(err, MSJ_GUARDAR));
+        libre(btn);
+      }
+    }
+
+    zona.replaceChildren(...sinVacios([
+      produccionesHoy(datos.producciones),
+      h('section', { class: 'grupo formulario' },
+        h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Lo que usé'),
+        h('p', { class: 'pequeno texto-suave' }, 'Lo comprado que se usó: carne cruda, huevos, camote… Se resta del inventario.'),
+        listaUsados, btnUsado),
+      h('section', { class: 'grupo formulario' },
+        h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Lo que salió'),
+        h('p', { class: 'pequeno texto-suave' }, 'Porciones, jarras, salsas hechas en casa… Se suma al inventario.'),
+        listaSalidas, btnSalida),
       h('div', { class: 'pie-accion' }, btn)
     ]));
   }
@@ -1348,6 +1480,7 @@
       h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Registrar'),
       h('div', { class: 'menu' }, ...sinVacios([
         opcion('Compras', 'Lo que entró: suma al inventario', ir('#compras')),
+        opcion('Producción', 'Lo que usé y lo que salió', ir('#produccion')),
         admin && opcion('Ventas del día', 'Platos y bebidas: descuenta del inventario', ir('#ventas')),
         admin && opcion('Nuevo producto', 'Agregar algo nuevo al inventario', () => abrirProducto(null))
       ]))));
@@ -1415,6 +1548,7 @@
     'por-comprar': vistaPorComprar,
     inventario: vistaInventario,
     compras: vistaCompras,
+    produccion: vistaProduccion,
     ventas: vistaVentas,
     recetas: vistaRecetas,
     mas: vistaMas,
@@ -1434,8 +1568,8 @@
   function render() {
     estado.vistaId++;
     const ruta = rutaActual();
-    // Compras, Ventas y Pendientes de compra se abren desde Hoy, así que la barra marca Hoy.
-    const seccion = { compras: 'hoy', ventas: 'hoy', 'por-comprar': 'hoy' }[ruta] || ruta.split('/')[0];
+    // Compras, Producción, Ventas y Pendientes de compra se abren desde Hoy, así que la barra marca Hoy.
+    const seccion = { compras: 'hoy', produccion: 'hoy', ventas: 'hoy', 'por-comprar': 'hoy' }[ruta] || ruta.split('/')[0];
     document.querySelectorAll('.nav-item[data-ruta]').forEach((a) => {
       const activo = a.dataset.ruta === seccion;
       a.classList.toggle('activo', activo);
