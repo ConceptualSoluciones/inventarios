@@ -1,0 +1,227 @@
+<!doctype html><meta charset="utf-8">
+<style>body{margin:0} iframe{width:390px;height:844px;border:0;display:block} pre{display:none}</style>
+<iframe id="app" src="web/index.html"></iframe>
+<pre id="out">corriendo…</pre>
+<script>
+const out = [];
+let fallas = 0;
+const log = (s) => out.push(s);
+const ok = (c, m) => { if (!c) fallas++; log((c ? 'OK   ' : 'FALLA ') + m); };
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+const fin = new URLSearchParams(location.search).get('fin');
+const frame = document.getElementById('app');
+let W, D;
+const $ = (s) => D.querySelector(s);
+const $$ = (s) => [...D.querySelectorAll(s)];
+const errores = [];
+async function esperar(fn, ms = 20000) {
+  const t = Date.now();
+  while (Date.now() - t < ms) { const r = fn(); if (r) return r; await dormir(50); }
+  return null;
+}
+const escribir = (el, v) => { el.value = v; el.dispatchEvent(new W.Event('input', { bubbles: true })); el.dispatchEvent(new W.Event('change', { bubbles: true })); };
+const textoAviso = () => ($('#avisos') ? $('#avisos').textContent : '');
+async function ir(hash) {
+  W.location.hash = hash;
+  await dormir(100);
+  await esperar(() => !$('#vista [aria-busy]') && !$('#vista .fila-esqueleto'));
+  await dormir(100);
+  const e = $('#vista .error-carga');
+  if (e) log('  error de carga en ' + hash + ': ' + e.textContent);
+  return !e;
+}
+async function ingresar(pin) {
+  await esperar(() => $('#ing-pin') && !$('#ingreso').hidden);
+  escribir($('#ing-pin'), pin);
+  $('.ingreso-form button[type=submit]').click();
+  await esperar(() => $('#ingreso').hidden, 60000);
+  await dormir(300);
+}
+async function guardarHoja(boton) {
+  boton.click();
+  await esperar(() => !$('#hoja').classList.contains('abierta') || /No se|Revisa|Escribe|Elige|ya es/.test(textoAviso()), 8000);
+  await dormir(600);
+  return textoAviso();
+}
+
+async function correr() {
+  W = frame.contentWindow; D = frame.contentDocument;
+  W.addEventListener('error', (e) => errores.push(String(e.message)));
+  W.addEventListener('unhandledrejection', (e) => errores.push('promesa: ' + (e.reason && e.reason.stack || e.reason)));
+
+  await ingresar('111111');
+  ok(await ir('#hoy'), 'Hoy carga');
+  ok($$('.pill').length === 3 && /Todavía no se anotó nada/.test($('#vista').textContent) && /Pendiente/.test($('#vista').textContent), 'Hoy: 3 pasos, sin compras, cierre pendiente');
+  ok($$('a.pill').map((a) => a.getAttribute('href')).join() === '#compras,#produccion,#ventas', 'admin abre Compras, Producción y Cierre');
+  if (fin === 'hoy') return;
+
+  ok(await ir('#inventario'), 'Inventario carga');
+  ok($$('.grafica-fila').length === 46, 'Inventario: barras de lo que se cuenta (' + $$('.grafica-fila').length + ')');
+  ok($$('.fila-estado .estados').length === 0 && $$('.nivel-texto').length === 25 && /🟢 Lleno/.test($('#vista').textContent), 'Inventario: 25 niveles al ojo solo para ver, sin botones');
+  // Buscar por alias después de ponerlo
+  if (fin === 'inventario') return;
+
+  ok(await ir('#mas/productos'), 'Productos carga');
+  ok($$('#vista .lista-fila').length === 71, 'Productos: 71 filas (' + $$('#vista .lista-fila').length + ')');
+  ok(/Quedan 71 productos por revisar/.test($('#vista').textContent), 'Productos: aviso de 71 por revisar');
+  // Editar la panceta: alias y mínimo
+  const panceta = $$('#vista .lista-fila').find((b) => /^Panceta/.test(b.querySelector('strong').textContent));
+  panceta.click();
+  await esperar(() => $('#pr-nombre'));
+  if (fin === 'editor') return;
+  ok($('#pr-medicion').value === 'presentacion' && $('#pr-unidad').value === 'porción', 'editor: panceta por porción');
+  escribir($('#pr-alias'), 'chicharrón');
+  escribir($('#pr-minimo'), '5');
+  let av = await guardarHoja($('#hoja form button[type=submit]'));
+  ok(/Guardado: Panceta/.test(av), 'guardar panceta: ' + av);
+  await ir('#mas/productos');
+  ok(/Quedan 70 productos/.test($('#vista').textContent), 'quedan 70 por revisar');
+  escribir($('#buscar-productos'), 'chancho');
+  const soloCrudo = $$('#vista .lista-fila').filter((b) => !b.hidden);
+  ok(soloCrudo.length === 1 && /Chancho crudo/.test(soloCrudo[0].textContent), 'buscar "chancho" encuentra solo el chancho crudo');
+  escribir($('#buscar-productos'), 'chicharron');
+  const visibles = $$('#vista .lista-fila').filter((b) => !b.hidden);
+  ok(visibles.length === 1 && /Panceta/.test(visibles[0].textContent), 'buscar por alias "chicharron" encuentra la panceta');
+  if (fin === 'productos') { escribir($('#buscar-productos'), ''); return; }
+
+  // Nuevo producto en gramos con stock
+  $$('#vista button').find((b) => /Nuevo producto/.test(b.textContent)).click();
+  await esperar(() => $('#pr-nombre'));
+  escribir($('#pr-nombre'), 'Lomo fino');
+  escribir($('#pr-alias'), 'lomo');
+  $('#pr-categoria').value = 'Carnes y proteínas';
+  escribir($('#pr-medicion'), 'gramos');
+  ok($('#pr-unidad').closest('.campo-grupo').hidden, 'en gramos no se pide unidad');
+  escribir($('#pr-stock'), '3000');
+  escribir($('#pr-minimo'), '2000');
+  av = await guardarHoja($('#hoja form button[type=submit]'));
+  ok(/Producto creado/.test(av), 'crear lomo fino: ' + av);
+  // Nuevo producto al ojo en categoría nueva
+  $$('#vista button').find((b) => /Nuevo producto/.test(b.textContent)).click();
+  await esperar(() => $('#pr-nombre'));
+  escribir($('#pr-nombre'), 'Cebollita china');
+  escribir($('#pr-categoria'), '');
+  ok(!$('#pr-otra').closest('.campo-grupo').hidden, 'categoría "Otra…" pide el nombre');
+  escribir($('#pr-otra'), 'Hierbas');
+  escribir($('#pr-medicion'), 'ojo');
+  ok($('#pr-minimo').closest('.fila').hidden, 'al ojo no pide mínimo');
+  av = await guardarHoja($('#hoja form button[type=submit]'));
+  ok(/Producto creado/.test(av), 'crear cebollita al ojo: ' + av);
+  if (fin === 'producto') return;
+
+  // Revisión inicial
+  ok(await ir('#mas/revision'), 'Revisión carga');
+  const filaPalta = $$('#vista .fila').find((f) => /^Palta/.test(f.textContent));
+  escribir(filaPalta.querySelector('input'), '6');
+  const filaGolf = $$('#vista .fila-estado').find((f) => /Golf/.test(f.textContent));
+  filaGolf.querySelector('[data-valor="bajo"]').click();
+  $$('#vista button').find((b) => /Guardar revisión/.test(b.textContent)).click();
+  await esperar(() => /Revisión guardada/.test(textoAviso()), 8000);
+  ok(/2 cambios/.test(textoAviso()), 'revisión: ' + textoAviso());
+  await ir('#por-comprar');
+  ok(/Golf ahumada/.test($('#vista').textContent) && /está en 🔴 Bajo/.test($('#vista').textContent), 'Pendientes de compra muestra Golf en Bajo');
+  await ir('#inventario');
+  const barraPalta = $$('.grafica-fila').find((f) => /Palta/.test(f.textContent));
+  ok(barraPalta && /6/.test(barraPalta.querySelector('.grafica-num').textContent), 'inventario: palta 6 u.');
+  const barraCarne = $$('.grafica-fila').find((f) => /Lomo fino/.test(f.textContent));
+  ok(barraCarne && /3\s*kg/.test(barraCarne.querySelector('.grafica-num').textContent), 'inventario: carne 3 kg (' + (barraCarne && barraCarne.querySelector('.grafica-num').textContent) + ')');
+  if (fin === 'revision') return;
+
+  // Receta con ingrediente al ojo
+  ok(await ir('#recetas'), 'Recetas carga');
+  ok(/Quedan 15 recetas por revisar/.test($('#vista').textContent), 'recetas: 15 por revisar');
+  $$('#vista .lista-fila').find((b) => /El Invicto/.test(b.textContent)).click();
+  await esperar(() => $('#hoja .ing-bloque'));
+  $$('#hoja button').find((b) => /Agregar ingrediente/.test(b.textContent)).click();
+  const bloques = $$('#hoja .ing-bloque');
+  const nuevo = bloques[bloques.length - 1];
+  escribir(nuevo.querySelector('select'), 'ins-arugula');
+  ok(nuevo.querySelector('input[type=checkbox]').checked && nuevo.querySelector('.ing-cantidad').hidden, 'arúgula queda al ojo sola');
+  av = await guardarHoja($$('#hoja button').find((b) => /Guardar receta/.test(b.textContent)));
+  ok(/Receta guardada/.test(av), 'guardar receta: ' + av);
+  ok(/Arúgula al ojo/.test($('#vista').textContent), 'resumen muestra "Arúgula al ojo"');
+  ok(/Quedan 14 recetas/.test($('#vista').textContent), 'quedan 14 por revisar');
+  if (fin === 'recetas') return;
+
+  // Ventas
+  ok(await ir('#ventas'), 'Ventas carga');
+  const filaInv = $$('#vista .fila').find((f) => /El Invicto/.test(f.textContent));
+  escribir(filaInv.querySelector('input'), '2');
+  $$('#vista button').find((b) => /Revisar descuento/.test(b.textContent)).click();
+  await esperar(() => $('#hoja').classList.contains('abierta'));
+  ok(/Palta/.test($('#hoja').textContent) && !/Arúgula/.test($('#hoja').textContent), 'descuento: palta sí, arúgula no');
+  av = await guardarHoja($$('#hoja button').find((b) => /Confirmar ventas/.test(b.textContent)));
+  ok(/Ventas guardadas/.test(av), 'ventas: ' + av);
+
+  // Compras (cocina también puede, se prueba abajo)
+  ok(await ir('#mas/movimientos'), 'Movimientos carga');
+  const textoMov = $('#vista').textContent;
+  ok(/Venta/.test(textoMov) && /Ajuste de conteo/.test(textoMov) && /Nivel/.test(textoMov), 'movimientos con tipos nuevos');
+  ok(await ir('#mas/ajustes'), 'Ajustes carga');
+  ok(!/Lotes|Forma de medir/.test($('#vista').textContent), 'ajustes sin lotes ni forma de medir');
+  if (fin === 'admin') return;
+
+  // Cocina
+  W.location.hash = '#mas';
+  await dormir(300);
+  $$('#vista button').find((b) => /Cambiar de usuario/.test(b.textContent)).click();
+  await ingresar('222222');
+  await ir('#mas');
+  ok(!/Productos/.test($('#vista').textContent), 'cocina no ve Productos en Más');
+  await ir('#inventario');
+  ok($$('.fila-estado .estados').length === 0 && $$('.nivel-texto').length > 0, 'cocina ve niveles sin botones');
+  ok(!$$('#vista button').some((b) => /Nuevo producto/.test(b.textContent)), 'cocina no ve "+ Nuevo producto"');
+  await ir('#ventas');
+  ok(/Solo admin/.test($('#vista').textContent), 'cocina: Ventas es solo admin');
+  await ir('#hoy');
+  ok(/Hecho · lo hace un admin/.test($('#vista').textContent) && $$('a.pill').length === 2, 'cocina: Cierre se ve pero no se abre');
+  ok(await ir('#compras'), 'Compras carga');
+  ok(!$$('#vista .compra').some((c) => /Asado|Panceta/.test(c.textContent)) && $$('#vista .compra').some((c) => /Queso Paria/.test(c.textContent)) && $$('#vista .compra').some((c) => /Harina/.test(c.textContent) && /va al ojo/.test(c.textContent)) && !$$('#vista .compra').some((c) => /Golf/.test(c.textContent)), 'Compras: lo comprado (también al ojo), sin lo hecho en casa');
+  const filaPan = $$('#vista .fila').find((f) => /Pan cubano/.test(f.textContent));
+  const compraPan = filaPan.closest('.compra');
+  ok(compraPan.querySelector('.fila-precio').hidden, 'precio oculto sin cantidad');
+  escribir(filaPan.querySelector('input'), '10');
+  ok(!compraPan.querySelector('.fila-precio').hidden, 'precio aparece al escribir cantidad');
+  escribir(compraPan.querySelector('.campo-precio'), '15,50');
+  $$('#vista button').find((b) => /Guardar compras/.test(b.textContent)).click();
+  await esperar(() => /Guardado/.test(textoAviso()), 8000);
+  ok(/Guardado: 1 producto/.test(textoAviso()), 'cocina compra: ' + textoAviso());
+  await esperar(() => /Ya anotado hoy/.test($('#vista').textContent));
+  ok(/Ya anotado hoy/.test($('#vista').textContent) && /S\/\s15[.,]50/.test($('#vista').textContent), 'lista de compras de hoy con precio');
+  await ir('#hoy');
+  ok(/Anotado: 1 producto/.test($('#vista').textContent), 'Hoy: compras anotadas');
+  if (fin === 'cocina') return;
+  // Producción (cocina)
+  ok(await ir('#produccion'), 'Producción carga');
+  $$('#vista button').find((b) => /Agregar lo que usé/.test(b.textContent)).click();
+  await esperar(() => $('#buscar-elegir'));
+  ok(!$$('#hoja .lista-fila').some((b) => /Asado/.test(b.textContent)) && $$('#hoja .lista-fila').some((b) => /Pollo deshuesado/.test(b.textContent)), 'usado: solo lo que se compra');
+  escribir($('#buscar-elegir'), 'pollo');
+  $$('#hoja .lista-fila').find((b) => !b.hidden && /Pollo deshuesado/.test(b.textContent)).click();
+  await esperar(() => $('#pro-u-ins-pollo-deshuesado'));
+  escribir($('#pro-u-ins-pollo-deshuesado'), '700');
+  $$('#vista button').find((b) => /Agregar lo que salió/.test(b.textContent)).click();
+  await esperar(() => $('#buscar-elegir'));
+  ok(!$$('#hoja .lista-fila').some((b) => /Palta|Lechuga/.test(b.textContent)) && $$('#hoja .lista-fila').some((b) => /Golf/.test(b.textContent)), 'salió: solo lo que se prepara');
+  $$('#hoja .lista-fila').find((b) => /Pollo deshilachado/.test(b.textContent)).click();
+  await esperar(() => $('#pro-s-prep-pollo-desh'));
+  escribir($('#pro-s-prep-pollo-desh'), '5');
+  $$('#vista button').find((b) => /Guardar producción/.test(b.textContent)).click();
+  await esperar(() => /Producción guardada|No se|Escribe/.test(textoAviso()), 8000);
+  ok(/Producción guardada/.test(textoAviso()), 'producción: ' + textoAviso());
+  await esperar(() => /Ya anotado hoy/.test($('#vista').textContent));
+  ok(/5 porc\. de Pollo deshilachado/.test($('#vista').textContent) && /usó 700 g de Pollo deshuesado/.test($('#vista').textContent), 'producción de hoy listada');
+  await ir('#hoy');
+  ok(/Salió: 1 producto/.test($('#vista').textContent), 'Hoy: producción anotada');
+  if (fin === 'produccion') { await ir('#produccion'); return; }
+  if (fin === 'compras') { await ir('#compras'); escribir($$('#vista .compra input')[0], '3'); return; }
+}
+
+frame.addEventListener('load', async () => {
+  try { await correr(); } catch (e) { fallas++; log('ERROR ' + (e.stack || e)); }
+  ok(!errores.length, 'sin errores de JavaScript' + (errores.length ? ': ' + errores.join(' | ') : ''));
+  log('\nFALLAS: ' + fallas);
+  document.getElementById('out').textContent = out.join('\n');
+  document.title = 'listo';
+}, { once: true });
+</script>

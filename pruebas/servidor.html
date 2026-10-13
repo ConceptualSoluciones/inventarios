@@ -1,0 +1,119 @@
+<!doctype html><meta charset="utf-8"><pre id="out"></pre>
+<script src="web/js/demo.js"></script>
+<script src="web/apps-script/Code.gs"></script>
+<script>
+const out = [];
+const log = (s) => out.push(s);
+let fallas = 0;
+const ok = (cond, msg) => { if (!cond) fallas++; log((cond ? 'OK   ' : 'FALLA ') + msg); };
+try {
+  const ingresar = (pin) => SantoDemo.llamar({ action: 'verificarPin', pin, data: {} }).data.token;
+  const adm = ingresar('111111');
+  const coc = ingresar('222222');
+  const llamar = (tok, action, data) => SantoDemo.llamar({ action, token: tok, data: data || {} });
+  const inv = () => llamar(adm, 'cargarInventario').data.insumos;
+  const p = (id) => inv().find((i) => i.id === id);
+  const hoy = hoyLima();
+
+  let ins = inv();
+  ok(ins.length === 71, 'semilla: 71 productos (' + ins.length + ')');
+  ok(ins.every((i) => i.revisar) && p('comp-sarsa').alias === 'aderezo criollo, salsa criolla' && p('comp-sarsa').medicion === 'ojo', 'semilla: todo por revisar, sarsa al ojo con alias');
+  ok(ins.filter((i) => i.medicion === 'ojo').length === 25 && ins.filter((i) => i.origen === 'comprado').length === 48 && ins.filter((i) => i.origen === 'hecho_en_casa').length === 23, 'semilla: 25 al ojo, 48 comprados, 23 hechos en casa');
+  ok(p('ins-chancho-crudo').alias === 'chancho, cerdo' && p('ins-res-cruda').medicion === 'gramos' && p('prep-panceta').alias === '' && p('ins-camote-crudo').medicion === 'gramos' && p('ins-harina').origen === 'comprado' && p('sal-golf').origen === 'hecho_en_casa', 'crudos, alias y orígenes');
+  ok(p('sal-golf').medicion === 'ojo' && p('sal-golf').estado_actual === 'lleno', 'salsas al ojo en lleno');
+  ok(p('ins-paria').medicion === 'gramos' && p('ins-paria').unidad === 'g', 'queso paria en gramos');
+  const rec = llamar(adm, 'cargarRecetas').data.recetas;
+  ok(rec.length === 15 && rec.every((r) => r.revisar), 'semilla: 15 recetas por revisar');
+
+  // Crear producto con alias
+  let r = llamar(adm, 'crearProducto', { nombre: 'Lomo fino', alias: 'lomo, solomillo', categoria: 'Carnes y proteínas', medicion: 'gramos', stock_minimo: 2000, stock_actual: 3000 });
+  ok(r.ok, 'crear producto en gramos con alias ' + (r.error || ''));
+  const carne = r.ok && r.data.insumos.find((i) => i.id === r.data.id);
+  ok(carne && carne.stock_actual === 3000 && carne.alias === 'lomo, solomillo' && !carne.revisar && carne.origen === 'comprado', 'stock inicial 3000 g, alias y comprado');
+  r = llamar(adm, 'crearProducto', { nombre: 'Res molida', alias: 'Carne', medicion: 'gramos' });
+  ok(!r.ok && /ya es el nombre o un alias/.test(r.error), 'alias repetido rechazado: ' + r.error);
+  r = llamar(adm, 'crearProducto', { nombre: 'Chicha morada', medicion: 'presentacion', unidad: 'Jarra', categoria: 'Bebidas' });
+  ok(r.ok && r.data.insumos.find((i) => i.id === r.data.id).unidad === 'jarra', 'presentación con unidad jarra');
+  const jarra = r.data.id;
+
+  // Editar
+  r = llamar(adm, 'guardarProducto', { id: 'prep-panceta', nombre: 'Panceta', alias: 'chicharrón', categoria: 'Carnes y proteínas', medicion: 'presentacion', unidad: 'porción', stock_minimo: 5, nota: '140 g', revisado: true });
+  ok(r.ok && !p('prep-panceta').revisar && p('prep-panceta').alias === 'chicharrón' && p('prep-panceta').stock_minimo === 5, 'editar panceta: alias, mínimo y revisado ' + (r.error || ''));
+  r = llamar(adm, 'guardarProducto', { id: 'prep-asado', nombre: 'Asado', categoria: 'Carnes y proteínas', medicion: 'presentacion', alias: 'carne' });
+  ok(!r.ok && /Carne de res cruda/.test(r.error), 'el asado no puede tener el alias "carne": ' + r.error);
+  r = llamar(adm, 'guardarProducto', { id: 'ins-palta', nombre: 'Palta', categoria: 'Verduras', medicion: 'ojo' });
+  ok(!r.ok && /receta/.test(r.error), 'palta (en recetas) no pasa a al ojo: ' + r.error);
+  r = llamar(adm, 'guardarProducto', { id: 'ins-mayonesa', nombre: 'Mayonesa', categoria: 'Solo producción', medicion: 'gramos' });
+  ok(r.ok && p('ins-mayonesa').medicion === 'gramos' && p('ins-mayonesa').revisar, 'mayonesa a gramos, sigue por revisar');
+  r = llamar(adm, 'guardarProducto', { id: 'ins-palta', desactivar: true });
+  ok(!r.ok, 'no se desactiva lo que está en una receta');
+  r = llamar(adm, 'guardarProducto', { id: 'ins-harina', desactivar: true });
+  ok(r.ok && !p('ins-harina'), 'desactivar harina');
+
+  // Revisión inicial
+  r = llamar(adm, 'guardarRevision', { conteos: [{ insumo_id: 'ins-palta', cantidad: 6 }, { insumo_id: jarra, cantidad: 2.5 }], niveles: [{ insumo_id: 'sal-golf', estado: 'medio' }, { insumo_id: 'ins-arugula', estado: 'bajo' }] });
+  ok(r.ok && r.data.ajustes === 2 && r.data.niveles === 2, 'revisión inicial: 2 conteos y 2 niveles ' + (r.error || ''));
+  ok(p('ins-palta').stock_actual === 6 && p(jarra).stock_actual === 2.5 && p('sal-golf').estado_actual === 'medio', 'stocks y niveles quedan');
+
+  // Permisos de cocina
+  ok(llamar(coc, 'crearProducto', { nombre: 'X', medicion: 'unidad' }).code === 'permiso', 'cocina no crea productos');
+  ok(llamar(coc, 'cambiarNivel', { insumo_id: 'sal-golf', estado: 'vacío' }).code === 'permiso', 'cocina no marca niveles (cierre)');
+  ok(llamar(coc, 'guardarVentas', { fecha: hoy, ventas: [] }).code === 'permiso', 'cocina no guarda ventas');
+  ok(llamar(coc, 'guardarRevision', { conteos: [] }).code === 'permiso', 'cocina no hace revisión');
+  ok(llamar(coc, 'cargarHoy').data.dia.compras === 0, 'hoy: sin compras todavía');
+  r = llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'ins-palta', cantidad: 4, precio: 12.5 }, { insumo_id: 'ins-tomate', cantidad: 3 }] });
+  ok(r.ok && p('ins-palta').stock_actual === 10 && r.data.compras.length === 2 && r.data.compras[0].precio === 12.5 && r.data.compras[1].precio === '', 'cocina compra 4 paltas (S/ 12.5) y 3 tomates sin precio ' + (r.error || ''));
+  let dia = llamar(coc, 'cargarHoy').data.dia;
+  ok(dia.compras === 2 && !dia.cierre, 'hoy: 2 productos comprados, cierre pendiente');
+  ok(llamar(coc, 'cargarCompras').data.compras.length === 2, 'compras de hoy se listan');
+  ok(llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'sal-golf', cantidad: 1 }] }).code === 'datos', 'no se compra algo al ojo');
+  r = llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'prep-asado', cantidad: 1 }] });
+  ok(r.code === 'datos' && /no se compra/.test(r.error), 'no se compra lo porcionado: ' + r.error);
+  llamar(adm, 'guardarRevision', { niveles: [{ insumo_id: 'ins-panko', estado: 'vacío' }] });
+  r = llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'ins-panko', cantidad: 2, precio: 8 }] });
+  ok(r.ok && p('ins-panko').estado_actual === 'lleno' && r.data.compras.some((c) => c.insumo_id === 'ins-panko' && c.cantidad === 2 && c.precio === 8), 'comprar panko (al ojo): cantidad, precio y queda lleno ' + (r.error || ''));
+
+  // Ventas
+  r = llamar(adm, 'guardarVentas', { fecha: hoy, ventas: [{ receta_id: 'rec-invicto', cantidad: 3 }, { receta_id: 'rec-kids', cantidad: 1 }] });
+  ok(r.ok && p('ins-palta').stock_actual === 8.5, 'venta 3 Invicto → palta 8.5 (' + p('ins-palta').stock_actual + ') ' + (r.error || ''));
+  ok(r.ok && r.data.sinReceta.join() === 'Kids', 'Kids sin receta');
+  r = llamar(adm, 'guardarVentas', { fecha: hoy, ventas: [{ receta_id: 'rec-invicto', cantidad: 2 }] });
+  ok(p('ins-palta').stock_actual === 9, 'corregir ventas no descuenta dos veces → 9');
+  ok(llamar(adm, 'cargarHoy').data.dia.cierre, 'hoy: cierre hecho después de las ventas');
+
+  // Recetas: al ojo
+  r = llamar(adm, 'guardarReceta', { id: 'rec-invicto', revisado: true, ingredientes: [{ insumo_id: 'ins-pan-cubano', cantidad: 1 }, { insumo_id: 'ins-arugula', al_ojo: true }] });
+  ok(r.ok && !r.data.recetas.find((x) => x.id === 'rec-invicto').revisar, 'receta con arúgula al ojo, revisada ' + (r.error || ''));
+  r = llamar(adm, 'guardarReceta', { id: 'rec-invicto', ingredientes: [{ insumo_id: 'ins-arugula', cantidad: 1 }] });
+  ok(!r.ok, 'al ojo no lleva cantidad: ' + r.error);
+
+  // Producción (cocina puede)
+  const carneId = 'ins-res-cruda';
+  llamar(coc, 'registrarCompras', { compras: [{ insumo_id: carneId, cantidad: 3000, precio: 90 }] });
+  const antesCarne = p(carneId).stock_actual;
+  llamar(adm, 'guardarRevision', { niveles: [{ insumo_id: 'sal-golf', estado: 'vacío' }] });
+  r = llamar(coc, 'registrarProduccion', { usados: [{ insumo_id: carneId, cantidad: 3000 }, { insumo_id: 'ins-huevo', cantidad: 2 }], salidas: [{ insumo_id: 'prep-asado', cantidad: 15 }, { insumo_id: 'sal-golf' }] });
+  ok(r.ok, 'producción guardada ' + (r.error || ''));
+  ok(p(carneId).stock_actual === antesCarne - 3000 && p('prep-asado').stock_actual === 15 && p('ins-huevo').stock_actual === -2, 'carne −3000 g, asado +15, huevo −2');
+  ok(p('sal-golf').estado_actual === 'lleno', 'la salsa producida queda llena');
+  ok(r.ok && r.data.producciones.length === 1 && r.data.producciones[0].usados.length === 2 && r.data.producciones[0].salidas.length === 2, 'producción agrupada: 2 usados, 2 salidas');
+  ok(llamar(coc, 'cargarHoy').data.dia.produccion === 2, 'hoy: salió 2 productos');
+  r = llamar(coc, 'registrarProduccion', { usados: [{ insumo_id: 'prep-asado', cantidad: 1 }], salidas: [{ insumo_id: 'prep-panceta', cantidad: 1 }] });
+  ok(!r.ok && /solo lo comprado que se cuenta/.test(r.error), 'no se usa lo porcionado: ' + r.error);
+  r = llamar(coc, 'registrarProduccion', { salidas: [{ insumo_id: 'ins-palta', cantidad: 1 }] });
+  ok(!r.ok && /no sale de Producción/.test(r.error), 'la palta no sale de producción: ' + r.error);
+  r = llamar(coc, 'registrarProduccion', { usados: [{ insumo_id: carneId, cantidad: 10 }], salidas: [] });
+  ok(!r.ok && /lo que salió/.test(r.error), 'sin salida no se guarda: ' + r.error);
+  const tiposProd = llamar(adm, 'cargarMovimientos', { fecha: hoy }).data.movimientos.filter((m) => /^produccion:/.test(m.origen)).map((m) => m.tipo).sort().join(',');
+  ok(tiposProd === 'nivel,produccion_salida,produccion_usado,produccion_usado', 'movimientos de producción: ' + tiposProd);
+
+  // Movimientos
+  const movs = llamar(adm, 'cargarMovimientos', { fecha: hoy }).data.movimientos;
+  const tipos = [...new Set(movs.map((m) => m.tipo))].sort().join(',');
+  ok(tipos === 'ajuste_conteo,compra,nivel,produccion_salida,produccion_usado,venta', 'tipos de movimiento: ' + tipos);
+  ok(movs.some((m) => m.tipo === 'compra' && m.precio === 12.5), 'compra guarda el precio');
+  ok(cantidadTexto(2500, 'g') === '2.5 kg' && cantidadTexto(1, 'jarra') === '1 jarra' && cantidadTexto(3, 'porción') === '3 porciones', 'textos de cantidad');
+} catch (e) { fallas++; log('ERROR ' + (e.stack || e)); }
+log('\nFALLAS: ' + fallas);
+document.getElementById('out').textContent = out.join('\n');
+</script>

@@ -1,5 +1,5 @@
 /* SANTO — modo demo.
-   Imita lo mínimo de Google Sheets y Apps Script para correr el MISMO apps-script/Code.gs y Semilla.gs
+   Imita lo mínimo de Google Sheets y Apps Script para correr el MISMO apps-script/Code.gs (armado desde partes/)
    en el navegador, con los datos en memoria (se pierden al recargar). Solo se usa sin URL en config.js
    y abriendo el index.html desde la computadora. */
 (function () {

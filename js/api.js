@@ -5,7 +5,7 @@
 
   const TIMEOUT_MS = 25000;
   const MSJ_RED = 'No se pudo conectar. Revisa tu conexión y vuelve a intentar.';
-  const MSJ_VERSION = 'El Apps Script publicado es de una versión anterior. Pega el Code.gs y el Semilla.gs nuevos ' +
+  const MSJ_VERSION = 'El Apps Script publicado es de una versión anterior. Pega el Code.gs nuevo ' +
     'y publica una versión nueva (Implementar › Administrar implementaciones › editar › Nueva versión).';
 
   class ApiError extends Error {
@@ -113,7 +113,7 @@
     return json.data;
   }
 
-  // ---------- modo demo: corre apps-script/Code.gs y Semilla.gs en el navegador (ver js/demo.js) ----------
+  // ---------- modo demo: corre apps-script/Code.gs (armado, trae la semilla) en el navegador (ver js/demo.js) ----------
   const Demo = (() => {
     let cargando = null;
     const cargarScript = (src) => new Promise((ok, falla) => {
@@ -124,8 +124,7 @@
       document.head.append(s);
     });
     const cargar = () => cargando || (cargando = cargarScript('js/demo.js')
-      .then(() => cargarScript('apps-script/Code.gs'))
-      .then(() => cargarScript('apps-script/Semilla.gs')));
+      .then(() => cargarScript('apps-script/Code.gs')));
 
     async function atender(accion, datos, pin) {
       await cargar();

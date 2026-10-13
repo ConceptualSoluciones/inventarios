@@ -1,13 +1,22 @@
+// =============================================================================
+// ARCHIVO ARMADO: no editar aquí. Se arma con `bash apps-script/armar.sh` desde apps-script/partes/.
+// Es lo único que se pega en el Apps Script.
+// =============================================================================
+
+// ===== partes/base.gs =====
+
 /**
  * SANTO — backend en Google Apps Script.
  *
  * Se pega en Extensiones › Apps Script del Google Sheet y se publica como aplicación web.
- * La web manda POST con { action, pin, usuario, data } y recibe { ok, data } o { ok: false, error, code }.
+ * La web manda POST con { action, token o pin, data } y recibe { ok, data } o { ok: false, error, code }.
  *
- * Son dos archivos en el mismo proyecto: Code.gs (este) y Semilla.gs (datos iniciales).
+ * El código vive separado por tema en apps-script/partes/ y `bash apps-script/armar.sh` lo junta en
+ * apps-script/Code.gs, que es lo único que se pega en el Apps Script (trae también la semilla).
+ * Cada parte registra las acciones que atiende con registrar(nombre, función, { soloAdmin }).
  *
  * Antes de usarlo:
- *   1. Ejecutar setup() una vez desde el editor (crea las hojas y carga Semilla.gs).
+ *   1. Ejecutar setup() una vez desde el editor (crea las hojas y carga la semilla).
  *      Para borrar todo y volver a la semilla: empezarDeCero().
  *   2. Dar de alta al equipo desde el Sheet: menú SANTO › Agregar persona (nombre, PIN de 6 números, rol).
  *      Cada persona entra con su PIN; en la pestaña Equipo el PIN queda solo como hash con sal.
@@ -20,7 +29,7 @@
  *
  * Roles: "admin" puede todo. "cocina" solo anota compras y producción del día; no puede el cierre (ventas,
  * salidas a Habemus, merma, niveles al ojo), la Revisión inicial, los conteos, ni editar productos o recetas
- * (lo valida este archivo, no solo la pantalla).
+ * (lo valida el servidor, no solo la pantalla).
  *
  * Cuatro formas de medir (columna medicion):
  *   - unidad:       panes, huevos, palta, gaseosas… (la unidad se puede nombrar: "unidad", "pan", "servicio").
@@ -157,28 +166,14 @@ class ErrorApp extends Error {
   }
 }
 
-const ACCIONES = {
-  verificarPin: (d, ctx) => ({ nombre: ctx.usuario, rol: ctx.rol }),
-  cerrarSesion: cerrarSesion,
-  cargarInventario: cargarInventario,
-  cambiarNivel: cambiarNivel,
-  crearProducto: crearProducto,
-  guardarProducto: guardarProducto,
-  cargarHoy: cargarHoy,
-  cargarCompras: cargarCompras,
-  cargarProduccion: cargarProduccion,
-  registrarProduccion: registrarProduccion,
-  registrarCompras: registrarCompras,
-  guardarRevision: guardarRevision,
-  cargarMovimientos: cargarMovimientos,
-  guardarMinimos: guardarMinimos,
-  ajustarStock: ajustarStock,
-  cargarRecetas: cargarRecetas,
-  crearReceta: crearReceta,
-  guardarReceta: guardarReceta,
-  cargarVentas: cargarVentas,
-  guardarVentas: guardarVentas
-};
+// Lo que la web puede pedir. Cada parte registra sus acciones con registrar().
+const ACCIONES = {};
+
+// soloAdmin: "cocina" no la puede pedir. Todo lo que se puede anotar en un día pasado es soloAdmin,
+// así que solo un admin corrige días pasados.
+function registrar(nombre, fn, opciones) {
+  ACCIONES[nombre] = { fn: fn, soloAdmin: Boolean(opciones && opciones.soloAdmin) };
+}
 
 function doPost(e) {
   pedidoWeb = true;
@@ -195,9 +190,9 @@ function doPost(e) {
     const accion = ACCIONES[pedido.action];
     if (!accion) throw new ErrorApp('Acción desconocida.', 'accion');
     const data = pedido.data || {};
-    revisarPermiso(pedido.action, persona);
+    revisarPermiso(accion, persona);
     const ctx = { usuario: persona.nombre, rol: persona.rol, token: pedido.token };
-    let resultado = accion(data, ctx);
+    let resultado = accion.fn(data, ctx);
     // Ingreso con PIN correcto: el celular queda reconocido con un token de sesión.
     if (persona.filaPorPin) resultado = Object.assign({}, resultado, crearSesion(persona.filaPorPin));
     return responder({
@@ -237,15 +232,17 @@ function responder(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// ===== partes/equipo.gs =====
+
+
 // ---------------------------------------------------------------------------
 // Equipo: PIN por persona, roles y límite de intentos
 // ---------------------------------------------------------------------------
 
 const ROLES = ['admin', 'cocina'];
-// Lo que "cocina" no puede hacer: el cierre (ventas, niveles al ojo), conteos y editar productos o recetas.
-// Todo lo que se puede anotar en un día pasado está aquí, así que solo un admin corrige días pasados.
-const SOLO_ADMIN = ['guardarRevision', 'guardarMinimos', 'ajustarStock', 'crearProducto', 'guardarProducto',
-  'cambiarNivel', 'crearReceta', 'guardarReceta', 'guardarVentas'];
+
+registrar('verificarPin', (d, ctx) => ({ nombre: ctx.usuario, rol: ctx.rol }));
+registrar('cerrarSesion', cerrarSesion);
 
 const MAX_FALLOS = 10;              // PINs equivocados...
 const VENTANA_FALLOS_S = 10 * 60;   // ...en 10 minutos...
@@ -350,9 +347,10 @@ function anotarFallo(cache) {
   }
 }
 
+// accion: lo que guardó registrar() (con su marca soloAdmin).
 function revisarPermiso(accion, persona) {
   if (persona.rol === 'admin') return;
-  if (SOLO_ADMIN.indexOf(accion) >= 0) throw new ErrorApp('Esto lo puede hacer solo un admin.', 'permiso');
+  if (accion.soloAdmin) throw new ErrorApp('Esto lo puede hacer solo un admin.', 'permiso');
 }
 
 function hashPin(sal, pin) {
@@ -419,13 +417,168 @@ function agregarPersonaDesdeMenu() {
   }
 }
 
+// ===== partes/hojas.gs =====
+
 // ---------------------------------------------------------------------------
-// Productos
+// Hojas: leer y escribir en el Sheet, bloqueo y utilidades (fechas, números, textos)
 // ---------------------------------------------------------------------------
 
-function cargarInventario() {
-  return { insumos: insumosActivos() };
+
+function hoja(nombre) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(nombre);
+  if (!sh) throw new ErrorApp('Falta la hoja ' + nombre + '. Ejecuta setup() en el Apps Script.', 'config');
+  return sh;
 }
+
+// Devuelve las filas como objetos { columna: valor, _fila: número de fila en la hoja }.
+function leerTabla(nombre) {
+  const valores = hoja(nombre).getDataRange().getValues();
+  const cab = valores.shift() || [];
+  const filas = [];
+  valores.forEach((r, i) => {
+    if (!r.some((v) => v !== '' && v !== null)) return;
+    filas.push(aObjeto(cab, r, i + 2));
+  });
+  return filas;
+}
+
+function aObjeto(cab, r, fila) {
+  const o = { _fila: fila };
+  cab.forEach((col, j) => { o[col] = normalizar(col, r[j]); });
+  return o;
+}
+
+function esColumnaTexto(col) {
+  return Boolean(FORMATO_TEXTO[col]) || col === 'id' || col.slice(-3) === '_id' ||
+    ['origen', 'alias', 'unidad', 'estado_actual', 'nota', 'revisar', 'al_ojo', 'pin_hash'].indexOf(col) >= 0;
+}
+
+// Si Sheets convirtió una fecha u hora en Date, la vuelve a texto en hora de Lima.
+function normalizar(col, v) {
+  if (FORMATO_TEXTO[col] && v instanceof Date) return Utilities.formatDate(v, TZ, FORMATO_TEXTO[col]);
+  if (esColumnaTexto(col)) return v === '' || v == null ? '' : String(v);
+  return v;
+}
+
+function aFila(nombre, obj) {
+  return HOJAS[nombre].map((col) => (obj[col] == null ? '' : obj[col]));
+}
+
+function agregarFilas(nombre, objs) {
+  if (!objs.length) return;
+  // Todo movimiento queda con el momento real en que se anotó, venga de donde venga.
+  if (nombre === 'Movimientos') {
+    const ahora = momentoReal();
+    objs.forEach((o) => { if (!o.momento) o.momento = ahora; });
+  }
+  const sh = hoja(nombre);
+  const desde = sh.getLastRow() + 1;
+  const faltan = desde + objs.length - 1 - sh.getMaxRows();
+  if (faltan > 0) sh.insertRowsAfter(sh.getMaxRows(), faltan);
+  sh.getRange(desde, 1, objs.length, HOJAS[nombre].length).setValues(objs.map((o) => aFila(nombre, o)));
+}
+
+// Borra solo las filas cuya columna `col` cumple `coincide`. Lee únicamente esa columna y borra
+// de abajo hacia arriba, por bloques seguidos. Nunca vacía la hoja entera. Devuelve cuántas borró.
+function borrarFilas(nombre, col, coincide) {
+  const sh = hoja(nombre);
+  const ultima = sh.getLastRow();
+  if (ultima < 2) return 0;
+  const filas = [];
+  sh.getRange(2, HOJAS[nombre].indexOf(col) + 1, ultima - 1, 1).getValues().forEach((r, k) => {
+    if (coincide(normalizar(col, r[0]))) filas.push(k + 2);
+  });
+  if (!filas.length) return 0;
+  // Sheets no deja borrar todas las filas debajo del encabezado: si fuera el caso, primero agrega una vacía.
+  if (sh.getMaxRows() - filas.length < 2) sh.insertRowsAfter(sh.getMaxRows(), 1);
+  let k = filas.length - 1;
+  while (k >= 0) {
+    const fin = filas[k];
+    while (k > 0 && filas[k - 1] === filas[k] - 1) k--;
+    sh.deleteRows(filas[k], fin - filas[k] + 1);
+    k--;
+  }
+  return filas.length;
+}
+
+// Toda escritura pasa por aquí para que dos personas guardando a la vez no se pisen.
+function conBloqueo(fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new ErrorApp('Hay otra persona guardando. Vuelve a intentar.', 'ocupado');
+  try {
+    return fn();
+  } finally {
+    SpreadsheetApp.flush();
+    lock.releaseLock();
+  }
+}
+
+
+// "Hoy" es el día de operación: antes de HORA_CORTE_DIA todavía es el día anterior (Lima no cambia de horario).
+function hoyLima() { return Utilities.formatDate(new Date(Date.now() - HORA_CORTE_DIA * 60 * 60 * 1000), TZ, 'yyyy-MM-dd'); }
+function horaLima() { return Utilities.formatDate(new Date(Date.now()), TZ, 'HH:mm'); }
+function ahoraLima() { return Utilities.formatDate(new Date(Date.now()), TZ, 'yyyy-MM-dd HH:mm'); }
+// Fecha calendario y hora reales de Lima, con segundos (sin el corte del día de operación).
+function momentoReal() { return Utilities.formatDate(new Date(Date.now()), TZ, 'yyyy-MM-dd HH:mm:ss'); }
+// Movimientos sin momento (no debería haber) se ordenan con su fecha y hora.
+function momentoDe(m) { return m.momento || (m.fecha + ' ' + m.hora); }
+
+function validarFecha(f) {
+  const s = String(f || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new ErrorApp('Fecha inválida.', 'datos');
+  if (s > hoyLima()) throw new ErrorApp('No se puede registrar un día que todavía no llega.', 'datos');
+  return s;
+}
+
+function validarNumero(v, nombre) {
+  const n = Number(String(v).replace(',', '.'));
+  if (vacio(v) || !isFinite(n) || n < 0) throw new ErrorApp('Revisa ' + nombre + ': tiene que ser un número.', 'datos');
+  return redondear(n);
+}
+
+function vacio(v) { return v === '' || v == null; }
+function num(v) { return Number(v) || 0; }
+function redondear(n) { return Math.round(n * 1000) / 1000; }
+function activo(v) {
+  const s = String(v).trim().toUpperCase();
+  return v !== false && s !== 'FALSE' && s !== 'NO';
+}
+function sinVacios(lista) { return lista.filter(Boolean); }
+function capital(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+// "12 porciones", "1 jarra", "1.5 kg". Mismas reglas que la pantalla (js/app.js).
+function cantidadTexto(n, unidad) {
+  let valor = num(n);
+  let u = unidad || '';
+  if (u === 'g' && Math.abs(valor) >= 1000) { valor = redondear(valor / 1000); u = 'kg'; }
+  return valor + ' ' + (Math.abs(valor) === 1 ? u : plural(u));
+}
+function plural(u) {
+  if (!u || u === 'g' || u === 'kg') return u;
+  if (/ón$/.test(u)) return u.slice(0, -2) + 'ones';
+  if (/[aeiouáéíóú]$/.test(u)) return u + 's';
+  return u + 'es';
+}
+// "sí" / "si" / VERDADERO en el Sheet.
+function marcado(v) {
+  const s = String(v).trim().toLowerCase();
+  return v === true || s === 'sí' || s === 'si' || s === 'true';
+}
+function mismoNombre(a, b) { return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); }
+function nuevoId(prefijo) { return prefijo + '-' + Utilities.getUuid().slice(0, 8); }
+function slug(s) {
+  return quitarTildes(String(s).toLowerCase()).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+// Quita las tildes. Escrito solo con caracteres ASCII para que copiar y pegar el archivo no lo rompa.
+const TILDES = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
+function quitarTildes(s) {
+  return s.normalize('NFD').replace(TILDES, '');
+}
+
+// ===== partes/stock.gs =====
+
+// ---------------------------------------------------------------------------
+// Núcleo del inventario: productos activos, movimientos, stock y niveles al ojo. Lo usan todas las páginas.
+// ---------------------------------------------------------------------------
 
 function insumosActivos() {
   return leerTabla('Insumos').filter((i) => activo(i.activo)).map((i) => {
@@ -440,6 +593,226 @@ function insumosActivos() {
     };
   });
 }
+
+// Escribe algunas columnas de una fila de Insumos.
+function ponerCampos(fila, campos) {
+  const sh = hoja('Insumos');
+  Object.keys(campos).forEach((col) => sh.getRange(fila, HOJAS.Insumos.indexOf(col) + 1).setValue(campos[col]));
+}
+
+// Un movimiento de hoy hecho a mano. extra cambia lo que haga falta (fecha, nota, precio, origen…).
+function movimiento(insumoId, tipo, cantidad, ctx, extra) {
+  return Object.assign({
+    id: nuevoId('mov'), fecha: hoyLima(), hora: horaLima(), insumo_id: insumoId, tipo: tipo,
+    cantidad: cantidad, precio: '', origen: 'manual', nota: '', usuario: ctx.usuario
+  }, extra || {});
+}
+
+// Solo los movimientos de una fecha: lee la columna de fechas y después únicamente el bloque de filas de ese día.
+function movimientosDeFecha(fecha) {
+  const sh = hoja('Movimientos');
+  const ultima = sh.getLastRow();
+  if (ultima < 2) return [];
+  const cab = HOJAS.Movimientos;
+  const fechas = sh.getRange(2, cab.indexOf('fecha') + 1, ultima - 1, 1).getValues().map((r) => normalizar('fecha', r[0]));
+  const desde = fechas.indexOf(fecha);
+  if (desde < 0) return [];
+  const hasta = fechas.lastIndexOf(fecha);
+  return sh.getRange(desde + 2, 1, hasta - desde + 1, cab.length).getValues()
+    .map((r, k) => aObjeto(cab, r, desde + 2 + k))
+    .filter((m) => m.fecha === fecha);
+}
+
+function valorMovimiento(m) {
+  const signo = SIGNO_MOVIMIENTO[m.tipo] || 0;
+  return m.tipo === 'ajuste_conteo' ? num(m.cantidad) : signo * Math.abs(num(m.cantidad));
+}
+
+// stock_actual de lo que se cuenta = suma de todos sus movimientos. Se escribe la columna entera de una vez.
+// Lo que va al ojo no tiene stock. Al final avisa por Telegram de lo que quedó bajo el mínimo.
+function recalcularStocks() {
+  const totales = {};
+  leerTabla('Movimientos').forEach((m) => {
+    totales[m.insumo_id] = (totales[m.insumo_id] || 0) + valorMovimiento(m);
+  });
+  const insumos = leerTabla('Insumos');
+  if (!insumos.length) return;
+  const stock = (i) => (i.medicion === 'ojo' ? '' : redondear(totales[i.id] || 0));
+  const col = HOJAS.Insumos.indexOf('stock_actual') + 1;
+  const sh = hoja('Insumos');
+  // Las filas de leerTabla pueden tener huecos; se escribe fila por fila solo si hay huecos.
+  const contiguas = insumos.every((i, k) => i._fila === k + 2);
+  if (contiguas) {
+    sh.getRange(2, col, insumos.length, 1).setValues(insumos.map((i) => [stock(i)]));
+  } else {
+    insumos.forEach((i) => sh.getRange(i._fila, col).setValue(stock(i)));
+  }
+
+  alertar(insumos
+    .filter((i) => activo(i.activo) && stock(i) !== '' && num(i.stock_minimo) > 0 && stock(i) < num(i.stock_minimo))
+    .map((i) => ({
+      id: i.id,
+      texto: 'Comprar ' + i.nombre + ': quedan ' + cantidadTexto(stock(i), i.unidad) +
+        ' (mínimo ' + cantidadTexto(num(i.stock_minimo), i.unidad) + ')'
+    })));
+}
+
+// Cambia el nivel de varios productos al ojo (sin bloqueo: lo pone quien llama). Devuelve cuántos cambiaron.
+// Lo que queda en bajo o vacío avisa por Telegram.
+function aplicarNiveles(lista, ctx) {
+  if (!lista.length) return 0;
+  const porId = {};
+  leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
+  const sh = hoja('Insumos');
+  const col = HOJAS.Insumos.indexOf('estado_actual') + 1;
+  const hora = horaLima();
+  const movs = [];
+  const alertas = [];
+  lista.forEach((c) => {
+    const i = porId[String(c.insumo_id || '')];
+    if (!i || !activo(i.activo) || i.medicion !== 'ojo') {
+      throw new ErrorApp('No se encontró uno de los productos al ojo. Recarga la página.', 'datos');
+    }
+    const nivel = String(c.estado || '').trim().toLowerCase();
+    if (NIVELES.indexOf(nivel) < 0) throw new ErrorApp('Nivel inválido para ' + i.nombre + '.', 'datos');
+    if (i.estado_actual === nivel) return;
+    sh.getRange(i._fila, col).setValue(nivel);
+    i.estado_actual = nivel;
+    movs.push(movimiento(i.id, 'nivel', '', ctx, { hora: hora, nota: nivel }));
+    if (NIVELES_ALERTA.indexOf(nivel) >= 0) {
+      alertas.push({ id: i.id, texto: i.nombre + ' está en ' + capital(nivel) + ' (marcó ' + ctx.usuario + ', ' + hora + ')' });
+    }
+  });
+  agregarFilas('Movimientos', movs);
+  alertar(alertas);
+  return movs.length;
+}
+
+// Los movimientos de una producción comparten el origen "produccion:<id>".
+const esProduccion = (m) => String(m.origen).indexOf('produccion:') === 0;
+
+// ===== partes/avisos.gs =====
+
+
+// ---------------------------------------------------------------------------
+// Alertas por Telegram
+// ---------------------------------------------------------------------------
+
+// Máximo un aviso por casilla por día: "alerta:<id>" guarda en Script Properties la fecha del último aviso,
+// y solo se vuelve a avisar cuando esa fecha ya no es hoy. Las marcas de días anteriores se borran,
+// así solo quedan las de hoy y no se acumulan claves.
+// Si Telegram no está configurado o falla, no se marca nada y el guardado sigue normal.
+function alertar(lista) {
+  if (!lista.length) return;
+  const props = PropertiesService.getScriptProperties();
+  const hoy = hoyLima();
+  const marcas = props.getProperties();
+  Object.keys(marcas).forEach((k) => {
+    if (k.indexOf('alerta:') === 0 && marcas[k] !== hoy) props.deleteProperty(k);
+  });
+  const nuevas = lista.filter((a) => marcas['alerta:' + a.id] !== hoy);
+  if (!nuevas.length) return;
+  if (!enviarTelegram(nuevas.map((a) => a.texto).join('\n'))) return;
+  nuevas.forEach((a) => props.setProperty('alerta:' + a.id, hoy));
+}
+
+function enviarTelegram(texto) {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('TELEGRAM_TOKEN');
+  const chat = props.getProperty('TELEGRAM_CHAT_ID');
+  if (!token || !chat) return false;
+  try {
+    const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'post', payload: { chat_id: chat, text: texto }, muteHttpExceptions: true
+    });
+    if (r.getResponseCode() === 200) return true;
+    console.error('Telegram respondió ' + r.getResponseCode() + ': ' + r.getContentText());
+  } catch (err) {
+    console.error('No se pudo enviar a Telegram: ' + err);
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Respaldo nocturno
+// ---------------------------------------------------------------------------
+
+const CARPETA_RESPALDOS = 'SANTO respaldos';
+const PREFIJO_RESPALDO = 'SANTO respaldo ';
+const DIAS_RESPALDO = 30;
+
+// Se ejecuta una vez a mano desde el editor (pide permiso para Drive). Programa respaldoNocturno() cada día
+// a las 23:30 de Lima (Google lo corre dentro de unos 15 minutos de esa hora) y hace la primera copia ya.
+// Si ya estaba programado, lo reemplaza: no quedan activadores repetidos.
+function instalarRespaldo() {
+  soloDesdeEditor('instalarRespaldo');
+  ScriptApp.getProjectTriggers()
+    .filter((t) => t.getHandlerFunction() === 'respaldoNocturno')
+    .forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('respaldoNocturno').timeBased().everyDays(1).atHour(23).nearMinute(30).inTimezone(TZ).create();
+  respaldoNocturno();
+  console.log('Listo: respaldo programado cada noche en la carpeta "' + CARPETA_RESPALDOS + '".');
+}
+
+// Copia el Sheet a "SANTO respaldos" y manda a la papelera las copias de más de 30 días.
+// Solo toca archivos de esa carpeta cuyo nombre empieza con "SANTO respaldo ".
+function respaldoNocturno() {
+  soloDesdeEditor('respaldoNocturno');
+  const carpetas = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
+  const carpeta = carpetas.hasNext() ? carpetas.next() : DriveApp.createFolder(CARPETA_RESPALDOS);
+  DriveApp.getFileById(SpreadsheetApp.getActive().getId()).makeCopy(PREFIJO_RESPALDO + ahoraLima(), carpeta);
+
+  const limite = new Date(Date.now() - DIAS_RESPALDO * 24 * 60 * 60 * 1000);
+  const archivos = carpeta.getFiles();
+  while (archivos.hasNext()) {
+    const a = archivos.next();
+    if (a.getName().indexOf(PREFIJO_RESPALDO) === 0 && a.getDateCreated() < limite) a.setTrashed(true);
+  }
+}
+
+// ===== partes/hoy.gs =====
+
+// ---------------------------------------------------------------------------
+// Hoy: en qué va el día
+// ---------------------------------------------------------------------------
+
+// Hoy: en qué va el día (Apertura → Producción → Cierre), según lo anotado en el día de operación.
+function cargarHoy() {
+  const fecha = hoyLima();
+  const movs = movimientosDeFecha(fecha);
+  const distintos = (lista) => lista.map((m) => m.insumo_id).filter((id, k, ids) => ids.indexOf(id) === k).length;
+  return {
+    fecha: fecha,
+    insumos: insumosActivos(),
+    dia: {
+      compras: distintos(movs.filter((m) => m.tipo === 'compra')),
+      // Lo que salió de Producción (lo preparado al ojo deja un movimiento "nivel" con origen de producción).
+      produccion: distintos(movs.filter((m) => esProduccion(m) && m.tipo !== 'produccion_usado')),
+      // El cierre deja ventas (origen "venta:<fecha>"), salidas a Habemus o merma.
+      cierre: movs.some((m) => String(m.origen).indexOf('venta:') === 0 || m.tipo === 'salida_habemus' || m.tipo === 'merma')
+    }
+  };
+}
+
+registrar('cargarHoy', cargarHoy);
+
+// ===== partes/inventario.gs =====
+
+// ---------------------------------------------------------------------------
+// Inventario: lo que hay (solo para ver)
+// ---------------------------------------------------------------------------
+
+function cargarInventario() {
+  return { insumos: insumosActivos() };
+}
+
+registrar('cargarInventario', cargarInventario);
+
+// ===== partes/productos.gs =====
+
+// ---------------------------------------------------------------------------
+// Productos (solo admin): crear, editar, forma de medir, origen, alias y quitar
+// ---------------------------------------------------------------------------
 
 // Lee y valida lo que manda la pantalla de Productos.
 function datosProducto(d) {
@@ -541,99 +914,14 @@ function recetasQueLlevan(insumoId, conOjo) {
   return leerTabla('Recetas').filter((r) => activo(r.activa) && ids[r.id]).map((r) => r.nombre);
 }
 
-// Escribe algunas columnas de una fila de Insumos.
-function ponerCampos(fila, campos) {
-  const sh = hoja('Insumos');
-  Object.keys(campos).forEach((col) => sh.getRange(fila, HOJAS.Insumos.indexOf(col) + 1).setValue(campos[col]));
-}
+registrar('crearProducto', crearProducto, { soloAdmin: true });
+registrar('guardarProducto', guardarProducto, { soloAdmin: true });
 
-// Un movimiento de hoy hecho a mano. extra cambia lo que haga falta (fecha, nota, precio, origen…).
-function movimiento(insumoId, tipo, cantidad, ctx, extra) {
-  return Object.assign({
-    id: nuevoId('mov'), fecha: hoyLima(), hora: horaLima(), insumo_id: insumoId, tipo: tipo,
-    cantidad: cantidad, precio: '', origen: 'manual', nota: '', usuario: ctx.usuario
-  }, extra || {});
-}
+// ===== partes/compras.gs =====
 
 // ---------------------------------------------------------------------------
-// Al ojo: nivel de salsas, aderezos y verduras
+// Compras: lo que se compró (apertura del día)
 // ---------------------------------------------------------------------------
-
-// Se guarda al momento, con quién y a qué hora.
-function cambiarNivel(d, ctx) {
-  return conBloqueo(() => {
-    aplicarNiveles([{ insumo_id: d.insumo_id, estado: d.estado }], ctx);
-    return { insumo: insumosActivos().find((i) => i.id === String(d.insumo_id)) };
-  });
-}
-
-// Cambia el nivel de varios productos al ojo (sin bloqueo: lo pone quien llama). Devuelve cuántos cambiaron.
-// Lo que queda en bajo o vacío avisa por Telegram.
-function aplicarNiveles(lista, ctx) {
-  if (!lista.length) return 0;
-  const porId = {};
-  leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
-  const sh = hoja('Insumos');
-  const col = HOJAS.Insumos.indexOf('estado_actual') + 1;
-  const hora = horaLima();
-  const movs = [];
-  const alertas = [];
-  lista.forEach((c) => {
-    const i = porId[String(c.insumo_id || '')];
-    if (!i || !activo(i.activo) || i.medicion !== 'ojo') {
-      throw new ErrorApp('No se encontró uno de los productos al ojo. Recarga la página.', 'datos');
-    }
-    const nivel = String(c.estado || '').trim().toLowerCase();
-    if (NIVELES.indexOf(nivel) < 0) throw new ErrorApp('Nivel inválido para ' + i.nombre + '.', 'datos');
-    if (i.estado_actual === nivel) return;
-    sh.getRange(i._fila, col).setValue(nivel);
-    i.estado_actual = nivel;
-    movs.push(movimiento(i.id, 'nivel', '', ctx, { hora: hora, nota: nivel }));
-    if (NIVELES_ALERTA.indexOf(nivel) >= 0) {
-      alertas.push({ id: i.id, texto: i.nombre + ' está en ' + capital(nivel) + ' (marcó ' + ctx.usuario + ', ' + hora + ')' });
-    }
-  });
-  agregarFilas('Movimientos', movs);
-  alertar(alertas);
-  return movs.length;
-}
-
-// ---------------------------------------------------------------------------
-// Compras, Revisión inicial y stock
-// ---------------------------------------------------------------------------
-
-// Solo los movimientos de una fecha: lee la columna de fechas y después únicamente el bloque de filas de ese día.
-function movimientosDeFecha(fecha) {
-  const sh = hoja('Movimientos');
-  const ultima = sh.getLastRow();
-  if (ultima < 2) return [];
-  const cab = HOJAS.Movimientos;
-  const fechas = sh.getRange(2, cab.indexOf('fecha') + 1, ultima - 1, 1).getValues().map((r) => normalizar('fecha', r[0]));
-  const desde = fechas.indexOf(fecha);
-  if (desde < 0) return [];
-  const hasta = fechas.lastIndexOf(fecha);
-  return sh.getRange(desde + 2, 1, hasta - desde + 1, cab.length).getValues()
-    .map((r, k) => aObjeto(cab, r, desde + 2 + k))
-    .filter((m) => m.fecha === fecha);
-}
-
-// Hoy: en qué va el día (Apertura → Producción → Cierre), según lo anotado en el día de operación.
-function cargarHoy() {
-  const fecha = hoyLima();
-  const movs = movimientosDeFecha(fecha);
-  const distintos = (lista) => lista.map((m) => m.insumo_id).filter((id, k, ids) => ids.indexOf(id) === k).length;
-  return {
-    fecha: fecha,
-    insumos: insumosActivos(),
-    dia: {
-      compras: distintos(movs.filter((m) => m.tipo === 'compra')),
-      // Lo que salió de Producción (lo preparado al ojo deja un movimiento "nivel" con origen de producción).
-      produccion: distintos(movs.filter((m) => esProduccion(m) && m.tipo !== 'produccion_usado')),
-      // El cierre deja ventas (origen "venta:<fecha>"), salidas a Habemus o merma.
-      cierre: movs.some((m) => String(m.origen).indexOf('venta:') === 0 || m.tipo === 'salida_habemus' || m.tipo === 'merma')
-    }
-  };
-}
 
 // Compras de hoy (para no anotar dos veces) y lo que se puede comprar.
 function cargarCompras() {
@@ -682,13 +970,18 @@ function registrarCompras(d, ctx) {
   });
 }
 
+registrar('cargarCompras', cargarCompras);
+registrar('registrarCompras', registrarCompras);
+
+// ===== partes/produccion.gs =====
+
+
 // ---------------------------------------------------------------------------
 // Producción: lo que se usó (resta) y lo que salió (suma). Las cantidades las pone quien produce.
 // ---------------------------------------------------------------------------
 
 // Lo que sale de Producción es lo hecho en casa (porciones, jarras, salsas…); lo que va al ojo queda en "lleno".
 // Lo que se usa es lo comprado que se cuenta (carne cruda, huevos…).
-const esProduccion = (m) => String(m.origen).indexOf('produccion:') === 0;
 
 // Las producciones de hoy, cada una con lo que se usó y lo que salió.
 function cargarProduccion() {
@@ -758,212 +1051,97 @@ function registrarProduccion(d, ctx) {
   });
 }
 
-// Revisión inicial: lo que hay de cada producto que se cuenta (entra como ajuste de conteo por la diferencia)
-// y el nivel real de lo que va al ojo.
-function guardarRevision(d, ctx) {
-  const conteos = (Array.isArray(d.conteos) ? d.conteos : [])
-    .map((c) => ({ insumo_id: String(c.insumo_id || ''), cantidad: validarNumero(c.cantidad, 'la cantidad') }));
-  const niveles = Array.isArray(d.niveles) ? d.niveles : [];
-  if (!conteos.length && !niveles.length) throw new ErrorApp('No hay cambios para guardar.', 'datos');
+registrar('cargarProduccion', cargarProduccion);
+registrar('registrarProduccion', registrarProduccion);
 
+// ===== partes/cierre.gs =====
+
+// ---------------------------------------------------------------------------
+// Cierre (solo admin): ventas del día y niveles al ojo
+// ---------------------------------------------------------------------------
+
+// Se guarda al momento, con quién y a qué hora.
+function cambiarNivel(d, ctx) {
   return conBloqueo(() => {
-    const porId = {};
-    insumosActivos().forEach((i) => { porId[i.id] = i; });
-    const hora = horaLima();
-    const ajustes = [];
-    conteos.forEach((c) => {
-      const i = porId[c.insumo_id];
-      if (!i || !seCuenta(i)) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
-      const diferencia = redondear(c.cantidad - i.stock_actual);
-      if (diferencia) ajustes.push(movimiento(i.id, 'ajuste_conteo', diferencia, ctx, { hora: hora, nota: 'Revisión inicial' }));
-    });
-    agregarFilas('Movimientos', ajustes);
-    const cambios = aplicarNiveles(niveles, ctx);
-    if (ajustes.length) recalcularStocks();
-    return { ajustes: ajustes.length, niveles: cambios, insumos: insumosActivos() };
+    aplicarNiveles([{ insumo_id: d.insumo_id, estado: d.estado }], ctx);
+    return { insumo: insumosActivos().find((i) => i.id === String(d.insumo_id)) };
   });
 }
 
-function valorMovimiento(m) {
-  const signo = SIGNO_MOVIMIENTO[m.tipo] || 0;
-  return m.tipo === 'ajuste_conteo' ? num(m.cantidad) : signo * Math.abs(num(m.cantidad));
-}
-
-// stock_actual de lo que se cuenta = suma de todos sus movimientos. Se escribe la columna entera de una vez.
-// Lo que va al ojo no tiene stock. Al final avisa por Telegram de lo que quedó bajo el mínimo.
-function recalcularStocks() {
-  const totales = {};
-  leerTabla('Movimientos').forEach((m) => {
-    totales[m.insumo_id] = (totales[m.insumo_id] || 0) + valorMovimiento(m);
-  });
-  const insumos = leerTabla('Insumos');
-  if (!insumos.length) return;
-  const stock = (i) => (i.medicion === 'ojo' ? '' : redondear(totales[i.id] || 0));
-  const col = HOJAS.Insumos.indexOf('stock_actual') + 1;
-  const sh = hoja('Insumos');
-  // Las filas de leerTabla pueden tener huecos; se escribe fila por fila solo si hay huecos.
-  const contiguas = insumos.every((i, k) => i._fila === k + 2);
-  if (contiguas) {
-    sh.getRange(2, col, insumos.length, 1).setValues(insumos.map((i) => [stock(i)]));
-  } else {
-    insumos.forEach((i) => sh.getRange(i._fila, col).setValue(stock(i)));
-  }
-
-  alertar(insumos
-    .filter((i) => activo(i.activo) && stock(i) !== '' && num(i.stock_minimo) > 0 && stock(i) < num(i.stock_minimo))
-    .map((i) => ({
-      id: i.id,
-      texto: 'Comprar ' + i.nombre + ': quedan ' + cantidadTexto(stock(i), i.unidad) +
-        ' (mínimo ' + cantidadTexto(num(i.stock_minimo), i.unidad) + ')'
-    })));
-}
-
-// ---------------------------------------------------------------------------
-// Movimientos (historial) y Ajustes
 // ---------------------------------------------------------------------------
 
-const MAX_HISTORIAL = 200;
-
-// Historial de un día (solo lee las filas de ese día) o, sin fecha, todo el de un producto. Lo más nuevo primero.
-function cargarMovimientos(d) {
-  const insumoId = String(d.insumo_id || '');
-  let movs;
-  if (!vacio(d.fecha)) movs = movimientosDeFecha(validarFecha(d.fecha));
-  else if (insumoId) movs = leerTabla('Movimientos');
-  else throw new ErrorApp('Elige un día o un producto.', 'datos');
-  if (insumoId) movs = movs.filter((m) => m.insumo_id === insumoId);
-  // Dentro del mismo minuto se respeta el orden en que se anotaron (al revés: lo último primero).
-  // Se ordena por el momento real, no por día de operación + hora (lo anotado a la 01:30 va después de las 22:00).
-  movs.reverse().sort((a, b) => momentoDe(b).localeCompare(momentoDe(a)));
-
-  // Nombres también de productos desactivados, para que el historial no quede con ids sueltos.
-  const productos = {};
-  leerTabla('Insumos').forEach((i) => { productos[i.id] = i; });
+function cargarVentas(d) {
+  const fecha = validarFecha(d.fecha || hoyLima());
+  const ventas = leerTabla('VentasDia').filter((v) => v.fecha === fecha);
+  const vendidos = (id) => {
+    const v = ventas.find((x) => x.receta_id === id);
+    return v ? num(v.cantidad) : 0;
+  };
+  const datos = cargarRecetas();
   return {
-    total: movs.length,
-    movimientos: movs.slice(0, MAX_HISTORIAL).map((m) => {
-      const i = productos[m.insumo_id] || {};
-      return {
-        id: m.id, fecha: m.fecha, hora: m.hora, insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id,
-        unidad: i.unidad || '', tipo: m.tipo, cantidad: vacio(m.cantidad) ? '' : valorMovimiento(m),
-        precio: vacio(m.precio) ? '' : num(m.precio), origen: m.origen, nota: m.nota, usuario: m.usuario
-      };
-    }),
-    insumos: insumosActivos()
+    fecha: fecha,
+    guardado: ventas.length > 0,
+    recetas: datos.recetas.map((r) => Object.assign({}, r, { vendidos: vendidos(r.id) })),
+    insumos: datos.insumos
   };
 }
 
-// Mínimos de lo que se cuenta. Vacío o 0 = sin mínimo.
-function guardarMinimos(d) {
-  const lista = (Array.isArray(d.minimos) ? d.minimos : []).map((m) => ({
-    insumo_id: String(m.insumo_id || ''),
-    minimo: vacio(m.minimo) ? 0 : validarNumero(m.minimo, 'el mínimo')
-  }));
-  if (!lista.length) throw new ErrorApp('No hay cambios para guardar.', 'datos');
+// Reemplaza las ventas de la fecha (no suma) y rehace sus descuentos, así corregir no descuenta dos veces.
+function guardarVentas(d, ctx) {
+  const fecha = validarFecha(d.fecha);
+  const lista = (Array.isArray(d.ventas) ? d.ventas : []).map((v) => ({
+    receta_id: String(v.receta_id || ''),
+    cantidad: validarNumero(v.cantidad, 'la cantidad')
+  })).filter((v) => v.cantidad > 0);
+
   return conBloqueo(() => {
-    const porId = {};
-    leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
-    lista.forEach((m) => {
-      const i = porId[m.insumo_id];
-      if (!i || !activo(i.activo) || !seCuenta(i)) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
-      ponerCampos(i._fila, { stock_minimo: m.minimo });
+    const datos = cargarRecetas();
+    const recetas = {};
+    datos.recetas.forEach((r) => { recetas[r.id] = r; });
+    const productos = {};
+    datos.insumos.forEach((i) => { productos[i.id] = i; });
+
+    const descuentos = {};
+    const sinReceta = [];
+    lista.forEach((v) => {
+      const r = recetas[v.receta_id];
+      if (!r) throw new ErrorApp('No se encontró uno de los productos vendidos. Recarga la página.', 'datos');
+      const conCantidad = r.ingredientes.filter((ing) => !ing.al_ojo && productos[ing.insumo_id] && seCuenta(productos[ing.insumo_id]));
+      if (!conCantidad.length) sinReceta.push(r.nombre);
+      conCantidad.forEach((ing) => {
+        descuentos[ing.insumo_id] = (descuentos[ing.insumo_id] || 0) + ing.cantidad * v.cantidad;
+      });
     });
-    recalcularStocks(); // si algo quedó bajo su nuevo mínimo, avisa
-    return { guardados: lista.length, insumos: insumosActivos() };
+
+    // Solo se tocan las filas de esta fecha: sus ventas y los descuentos que esas ventas hicieron.
+    const ahora = ahoraLima();
+    borrarFilas('VentasDia', 'fecha', (v) => v === fecha);
+    agregarFilas('VentasDia', lista.map((v) => ({
+      fecha: fecha, receta_id: v.receta_id, cantidad: v.cantidad, actualizado_por: ctx.usuario, actualizado_en: ahora
+    })));
+
+    const origen = 'venta:' + fecha;
+    const hora = horaLima();
+    const nuevos = Object.keys(descuentos).map((id) => movimiento(id, 'venta', redondear(descuentos[id]), ctx,
+      { fecha: fecha, hora: hora, origen: origen, nota: 'Ventas del día' }));
+    borrarFilas('Movimientos', 'origen', (v) => v === origen);
+    agregarFilas('Movimientos', nuevos);
+    recalcularStocks();
+
+    return {
+      sinReceta: sinReceta,
+      descontado: nuevos.map((m) => ({ insumo_id: m.insumo_id, cantidad: m.cantidad })),
+      insumos: insumosActivos()
+    };
   });
 }
 
-// Conteo: entra la diferencia entre lo contado y lo que dice el sistema.
-function ajustarStock(d, ctx) {
-  const cantidad = validarNumero(d.cantidad, 'lo contado');
-  const nota = String(d.nota || '').trim().slice(0, 200) || 'Conteo';
-  return conBloqueo(() => {
-    const i = insumosActivos().find((x) => x.id === String(d.insumo_id || ''));
-    if (!i || !seCuenta(i)) throw new ErrorApp('Elige un producto que se cuente.', 'datos');
-    const diferencia = redondear(cantidad - i.stock_actual);
-    if (diferencia) {
-      agregarFilas('Movimientos', [movimiento(i.id, 'ajuste_conteo', diferencia, ctx, { nota: nota })]);
-      recalcularStocks();
-    }
-    return { diferencia: diferencia, insumos: insumosActivos() };
-  });
-}
+registrar('cambiarNivel', cambiarNivel, { soloAdmin: true });
+registrar('cargarVentas', cargarVentas);
+registrar('guardarVentas', guardarVentas, { soloAdmin: true });
 
-// ---------------------------------------------------------------------------
-// Alertas por Telegram
-// ---------------------------------------------------------------------------
+// ===== partes/recetas.gs =====
 
-// Máximo un aviso por casilla por día: "alerta:<id>" guarda en Script Properties la fecha del último aviso,
-// y solo se vuelve a avisar cuando esa fecha ya no es hoy. Las marcas de días anteriores se borran,
-// así solo quedan las de hoy y no se acumulan claves.
-// Si Telegram no está configurado o falla, no se marca nada y el guardado sigue normal.
-function alertar(lista) {
-  if (!lista.length) return;
-  const props = PropertiesService.getScriptProperties();
-  const hoy = hoyLima();
-  const marcas = props.getProperties();
-  Object.keys(marcas).forEach((k) => {
-    if (k.indexOf('alerta:') === 0 && marcas[k] !== hoy) props.deleteProperty(k);
-  });
-  const nuevas = lista.filter((a) => marcas['alerta:' + a.id] !== hoy);
-  if (!nuevas.length) return;
-  if (!enviarTelegram(nuevas.map((a) => a.texto).join('\n'))) return;
-  nuevas.forEach((a) => props.setProperty('alerta:' + a.id, hoy));
-}
-
-function enviarTelegram(texto) {
-  const props = PropertiesService.getScriptProperties();
-  const token = props.getProperty('TELEGRAM_TOKEN');
-  const chat = props.getProperty('TELEGRAM_CHAT_ID');
-  if (!token || !chat) return false;
-  try {
-    const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
-      method: 'post', payload: { chat_id: chat, text: texto }, muteHttpExceptions: true
-    });
-    if (r.getResponseCode() === 200) return true;
-    console.error('Telegram respondió ' + r.getResponseCode() + ': ' + r.getContentText());
-  } catch (err) {
-    console.error('No se pudo enviar a Telegram: ' + err);
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Respaldo nocturno
-// ---------------------------------------------------------------------------
-
-const CARPETA_RESPALDOS = 'SANTO respaldos';
-const PREFIJO_RESPALDO = 'SANTO respaldo ';
-const DIAS_RESPALDO = 30;
-
-// Se ejecuta una vez a mano desde el editor (pide permiso para Drive). Programa respaldoNocturno() cada día
-// a las 23:30 de Lima (Google lo corre dentro de unos 15 minutos de esa hora) y hace la primera copia ya.
-// Si ya estaba programado, lo reemplaza: no quedan activadores repetidos.
-function instalarRespaldo() {
-  soloDesdeEditor('instalarRespaldo');
-  ScriptApp.getProjectTriggers()
-    .filter((t) => t.getHandlerFunction() === 'respaldoNocturno')
-    .forEach((t) => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('respaldoNocturno').timeBased().everyDays(1).atHour(23).nearMinute(30).inTimezone(TZ).create();
-  respaldoNocturno();
-  console.log('Listo: respaldo programado cada noche en la carpeta "' + CARPETA_RESPALDOS + '".');
-}
-
-// Copia el Sheet a "SANTO respaldos" y manda a la papelera las copias de más de 30 días.
-// Solo toca archivos de esa carpeta cuyo nombre empieza con "SANTO respaldo ".
-function respaldoNocturno() {
-  soloDesdeEditor('respaldoNocturno');
-  const carpetas = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
-  const carpeta = carpetas.hasNext() ? carpetas.next() : DriveApp.createFolder(CARPETA_RESPALDOS);
-  DriveApp.getFileById(SpreadsheetApp.getActive().getId()).makeCopy(PREFIJO_RESPALDO + ahoraLima(), carpeta);
-
-  const limite = new Date(Date.now() - DIAS_RESPALDO * 24 * 60 * 60 * 1000);
-  const archivos = carpeta.getFiles();
-  while (archivos.hasNext()) {
-    const a = archivos.next();
-    if (a.getName().indexOf(PREFIJO_RESPALDO) === 0 && a.getDateCreated() < limite) a.setTrashed(true);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Recetas (lo que lleva UN plato o UNA bebida vendida)
@@ -1037,229 +1215,301 @@ function guardarReceta(d) {
   });
 }
 
+registrar('cargarRecetas', cargarRecetas);
+registrar('crearReceta', crearReceta, { soloAdmin: true });
+registrar('guardarReceta', guardarReceta, { soloAdmin: true });
+
+// ===== partes/revision.gs =====
+
 // ---------------------------------------------------------------------------
-// Ventas del día (lo que sale)
+// Revisión inicial (solo admin): el punto de partida
 // ---------------------------------------------------------------------------
 
-function cargarVentas(d) {
-  const fecha = validarFecha(d.fecha || hoyLima());
-  const ventas = leerTabla('VentasDia').filter((v) => v.fecha === fecha);
-  const vendidos = (id) => {
-    const v = ventas.find((x) => x.receta_id === id);
-    return v ? num(v.cantidad) : 0;
-  };
-  const datos = cargarRecetas();
-  return {
-    fecha: fecha,
-    guardado: ventas.length > 0,
-    recetas: datos.recetas.map((r) => Object.assign({}, r, { vendidos: vendidos(r.id) })),
-    insumos: datos.insumos
-  };
-}
-
-// Reemplaza las ventas de la fecha (no suma) y rehace sus descuentos, así corregir no descuenta dos veces.
-function guardarVentas(d, ctx) {
-  const fecha = validarFecha(d.fecha);
-  const lista = (Array.isArray(d.ventas) ? d.ventas : []).map((v) => ({
-    receta_id: String(v.receta_id || ''),
-    cantidad: validarNumero(v.cantidad, 'la cantidad')
-  })).filter((v) => v.cantidad > 0);
+// Revisión inicial: lo que hay de cada producto que se cuenta (entra como ajuste de conteo por la diferencia)
+// y el nivel real de lo que va al ojo.
+function guardarRevision(d, ctx) {
+  const conteos = (Array.isArray(d.conteos) ? d.conteos : [])
+    .map((c) => ({ insumo_id: String(c.insumo_id || ''), cantidad: validarNumero(c.cantidad, 'la cantidad') }));
+  const niveles = Array.isArray(d.niveles) ? d.niveles : [];
+  if (!conteos.length && !niveles.length) throw new ErrorApp('No hay cambios para guardar.', 'datos');
 
   return conBloqueo(() => {
-    const datos = cargarRecetas();
-    const recetas = {};
-    datos.recetas.forEach((r) => { recetas[r.id] = r; });
-    const productos = {};
-    datos.insumos.forEach((i) => { productos[i.id] = i; });
-
-    const descuentos = {};
-    const sinReceta = [];
-    lista.forEach((v) => {
-      const r = recetas[v.receta_id];
-      if (!r) throw new ErrorApp('No se encontró uno de los productos vendidos. Recarga la página.', 'datos');
-      const conCantidad = r.ingredientes.filter((ing) => !ing.al_ojo && productos[ing.insumo_id] && seCuenta(productos[ing.insumo_id]));
-      if (!conCantidad.length) sinReceta.push(r.nombre);
-      conCantidad.forEach((ing) => {
-        descuentos[ing.insumo_id] = (descuentos[ing.insumo_id] || 0) + ing.cantidad * v.cantidad;
-      });
-    });
-
-    // Solo se tocan las filas de esta fecha: sus ventas y los descuentos que esas ventas hicieron.
-    const ahora = ahoraLima();
-    borrarFilas('VentasDia', 'fecha', (v) => v === fecha);
-    agregarFilas('VentasDia', lista.map((v) => ({
-      fecha: fecha, receta_id: v.receta_id, cantidad: v.cantidad, actualizado_por: ctx.usuario, actualizado_en: ahora
-    })));
-
-    const origen = 'venta:' + fecha;
+    const porId = {};
+    insumosActivos().forEach((i) => { porId[i.id] = i; });
     const hora = horaLima();
-    const nuevos = Object.keys(descuentos).map((id) => movimiento(id, 'venta', redondear(descuentos[id]), ctx,
-      { fecha: fecha, hora: hora, origen: origen, nota: 'Ventas del día' }));
-    borrarFilas('Movimientos', 'origen', (v) => v === origen);
-    agregarFilas('Movimientos', nuevos);
-    recalcularStocks();
+    const ajustes = [];
+    conteos.forEach((c) => {
+      const i = porId[c.insumo_id];
+      if (!i || !seCuenta(i)) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
+      const diferencia = redondear(c.cantidad - i.stock_actual);
+      if (diferencia) ajustes.push(movimiento(i.id, 'ajuste_conteo', diferencia, ctx, { hora: hora, nota: 'Revisión inicial' }));
+    });
+    agregarFilas('Movimientos', ajustes);
+    const cambios = aplicarNiveles(niveles, ctx);
+    if (ajustes.length) recalcularStocks();
+    return { ajustes: ajustes.length, niveles: cambios, insumos: insumosActivos() };
+  });
+}
 
+registrar('guardarRevision', guardarRevision, { soloAdmin: true });
+
+// ===== partes/movimientos.gs =====
+
+// ---------------------------------------------------------------------------
+// Movimientos: historial
+// ---------------------------------------------------------------------------
+
+const MAX_HISTORIAL = 200;
+
+// Historial de un día (solo lee las filas de ese día) o, sin fecha, todo el de un producto. Lo más nuevo primero.
+function cargarMovimientos(d) {
+  const insumoId = String(d.insumo_id || '');
+  let movs;
+  if (!vacio(d.fecha)) movs = movimientosDeFecha(validarFecha(d.fecha));
+  else if (insumoId) movs = leerTabla('Movimientos');
+  else throw new ErrorApp('Elige un día o un producto.', 'datos');
+  if (insumoId) movs = movs.filter((m) => m.insumo_id === insumoId);
+  // Dentro del mismo minuto se respeta el orden en que se anotaron (al revés: lo último primero).
+  // Se ordena por el momento real, no por día de operación + hora (lo anotado a la 01:30 va después de las 22:00).
+  movs.reverse().sort((a, b) => momentoDe(b).localeCompare(momentoDe(a)));
+
+  // Nombres también de productos desactivados, para que el historial no quede con ids sueltos.
+  const productos = {};
+  leerTabla('Insumos').forEach((i) => { productos[i.id] = i; });
+  return {
+    total: movs.length,
+    movimientos: movs.slice(0, MAX_HISTORIAL).map((m) => {
+      const i = productos[m.insumo_id] || {};
+      return {
+        id: m.id, fecha: m.fecha, hora: m.hora, insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id,
+        unidad: i.unidad || '', tipo: m.tipo, cantidad: vacio(m.cantidad) ? '' : valorMovimiento(m),
+        precio: vacio(m.precio) ? '' : num(m.precio), origen: m.origen, nota: m.nota, usuario: m.usuario
+      };
+    }),
+    insumos: insumosActivos()
+  };
+}
+
+registrar('cargarMovimientos', cargarMovimientos);
+
+// ===== partes/ajustes.gs =====
+
+// ---------------------------------------------------------------------------
+// Ajustes (solo admin): conteo de un producto y mínimos
+// ---------------------------------------------------------------------------
+
+// Mínimos de lo que se cuenta. Vacío o 0 = sin mínimo.
+function guardarMinimos(d) {
+  const lista = (Array.isArray(d.minimos) ? d.minimos : []).map((m) => ({
+    insumo_id: String(m.insumo_id || ''),
+    minimo: vacio(m.minimo) ? 0 : validarNumero(m.minimo, 'el mínimo')
+  }));
+  if (!lista.length) throw new ErrorApp('No hay cambios para guardar.', 'datos');
+  return conBloqueo(() => {
+    const porId = {};
+    leerTabla('Insumos').forEach((i) => { porId[i.id] = i; });
+    lista.forEach((m) => {
+      const i = porId[m.insumo_id];
+      if (!i || !activo(i.activo) || !seCuenta(i)) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
+      ponerCampos(i._fila, { stock_minimo: m.minimo });
+    });
+    recalcularStocks(); // si algo quedó bajo su nuevo mínimo, avisa
+    return { guardados: lista.length, insumos: insumosActivos() };
+  });
+}
+
+// Conteo: entra la diferencia entre lo contado y lo que dice el sistema.
+function ajustarStock(d, ctx) {
+  const cantidad = validarNumero(d.cantidad, 'lo contado');
+  const nota = String(d.nota || '').trim().slice(0, 200) || 'Conteo';
+  return conBloqueo(() => {
+    const i = insumosActivos().find((x) => x.id === String(d.insumo_id || ''));
+    if (!i || !seCuenta(i)) throw new ErrorApp('Elige un producto que se cuente.', 'datos');
+    const diferencia = redondear(cantidad - i.stock_actual);
+    if (diferencia) {
+      agregarFilas('Movimientos', [movimiento(i.id, 'ajuste_conteo', diferencia, ctx, { nota: nota })]);
+      recalcularStocks();
+    }
+    return { diferencia: diferencia, insumos: insumosActivos() };
+  });
+}
+
+registrar('guardarMinimos', guardarMinimos, { soloAdmin: true });
+registrar('ajustarStock', ajustarStock, { soloAdmin: true });
+
+// ===== partes/semilla.gs =====
+
+/**
+ * SANTO — datos iniciales (salen de RECETAS.md: la ficha de la dueña, revisada con cocina el 07/10/2026,
+ * y de lo que la dueña decidió el 12/10/2026).
+ *
+ * Todo se carga como BORRADOR: productos y recetas quedan marcados "por revisar" para que la dueña los
+ * corrija en las pantallas de Productos y Recetas.
+ *
+ * cargarSemilla() agrega lo que falta, comparando por id. No duplica nada si se corre dos veces
+ * y no toca lo que ya existe (si alguien lo cambió en la app, se respeta).
+ *
+ * Formas de medir: unidad, gramos, presentacion (porción, jarra…) y ojo (lleno · medio · bajo · vacío).
+ * Origen: comprado (aparece en Compras, aunque vaya al ojo) o hecho_en_casa (sale de Producción).
+ * Cada proteína tiene su crudo (comprado, por gramos) y su porcionado (hecho en casa, por porción).
+ */
+
+const COMPRADO = 'comprado';
+const EN_CASA = 'hecho_en_casa';
+
+const SEMILLA = {
+  // [id, nombre, categoria, medicion, unidad, nota, origen]
+  insumos: [
+    // Proteínas crudas: se compran por peso y en Producción se porcionan.
+    ['ins-res-cruda', 'Carne de res cruda', 'Carnes y proteínas', 'gramos', 'g', 'se porciona en Asado', COMPRADO],
+    ['ins-chancho-crudo', 'Chancho crudo', 'Carnes y proteínas', 'gramos', 'g', 'se porciona en Panceta / Chicharrón', COMPRADO],
+    ['ins-pollo-deshuesado', 'Pollo deshuesado', 'Carnes y proteínas', 'gramos', 'g',
+      'se porciona en Pollo Invicto y Pollo deshilachado', COMPRADO],
+    ['ins-portobello', 'Portobello', 'Carnes y proteínas', 'gramos', 'g', 'se porciona en Portobello anticuchero', COMPRADO],
+    ['ins-jamon', 'Jamón', 'Carnes y proteínas', 'gramos', 'g', 'va en el Mix fiambres Artesano', COMPRADO],
+    ['ins-salami', 'Salami ahumado', 'Carnes y proteínas', 'gramos', 'g', 'va en el Mix fiambres Artesano', COMPRADO],
+
+    // Proteínas porcionadas: salen de Producción. La nota es el gramaje de referencia de la ficha.
+    ['prep-panceta', 'Panceta / Chicharrón', 'Carnes y proteínas', 'presentacion', 'porción', '140 g', EN_CASA],
+    ['prep-pollo', 'Pollo Invicto', 'Carnes y proteínas', 'presentacion', 'porción', '150 g crudo', EN_CASA],
+    ['prep-asado', 'Asado', 'Carnes y proteínas', 'presentacion', 'porción', '120 g', EN_CASA],
+    ['prep-portobello', 'Portobello anticuchero', 'Carnes y proteínas', 'presentacion', 'porción', '90 g', EN_CASA],
+    ['prep-fiambres', 'Mix fiambres Artesano', 'Carnes y proteínas', 'presentacion', 'porción', '90 g', EN_CASA],
+    ['prep-pollo-desh', 'Pollo deshilachado', 'Carnes y proteínas', 'presentacion', 'porción', '140 g', EN_CASA],
+
+    // Panes, palta, tomate, papas y camote.
+    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-roseta', 'Roseta', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-focaccia', 'Focaccia', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-palta', 'Palta', 'Verduras', 'unidad', 'unidad', '1 palta = 2 panes', COMPRADO],
+    ['ins-tomate', 'Tomate', 'Verduras', 'unidad', 'unidad', '1 tomate = 2 panes', COMPRADO],
+    ['ins-papas', 'Papas congeladas', 'Congelados', 'presentacion', 'porción', 'bolsa de 200 g', COMPRADO],
+    ['ins-camote-crudo', 'Camote crudo', 'Verduras', 'gramos', 'g', 'se porciona y congela: sale Camote frito', COMPRADO],
+    ['comp-camote-frito', 'Camote frito', 'Complementos', 'presentacion', 'porción', '', EN_CASA],
+
+    // Salsas y aderezos: hechos en casa, al ojo, con la botella dispensadora.
+    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-aji-huacatay', 'Ají amarillo con ajo y huacatay', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-golf', 'Golf ahumada', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-culantro', 'Culantro y cebollín', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-pesto', 'Pesto de albahaca', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-glaseado', 'Glaseado Bravo', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-anticuchero', 'Aderezo anticuchero', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+
+    // Verduras al ojo (compradas) y complementos hechos en casa.
+    ['ins-lechuga', 'Lechuga', 'Verduras', 'ojo', '', '', COMPRADO],
+    ['ins-arugula', 'Arúgula', 'Verduras', 'ojo', '', '', COMPRADO],
+    ['ins-cebollita', 'Cebollita', 'Verduras', 'ojo', '', '', COMPRADO],
+    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'ojo', '', '', EN_CASA],
+    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'ojo', '', '', EN_CASA],
+    ['comp-aros', 'Aros de cebolla', 'Complementos', 'presentacion', 'porción', '', EN_CASA],
+    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'presentacion', 'porción', '', EN_CASA],
+
+    // Lácteos y secos.
+    ['ins-paria', 'Queso Paria', 'Lácteos', 'gramos', 'g', '', COMPRADO],
+    ['ins-huevo', 'Huevo', 'Secos', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-harina', 'Harina', 'Secos', 'ojo', '', '', COMPRADO],
+    ['ins-panko', 'Panko', 'Secos', 'ojo', '', '', COMPRADO],
+
+    // Bebidas: se preparan en casa.
+    ['beb-chicha', 'Chicha', 'Bebidas', 'unidad', 'unidad', '', EN_CASA],
+    ['beb-maracuya', 'Maracuyá', 'Bebidas', 'unidad', 'unidad', '', EN_CASA]
+  ],
+
+  // Insumos solo de producción, comprados: por porción hasta que se decida unidad o gramos. Su id sale del nombre.
+  soloProduccion: [
+    'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido',
+    'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
+    'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate'
+  ],
+  // Condimentos de solo producción, comprados: al ojo. Su id sale del nombre.
+  soloProduccionOjo: ['Sal', 'Pimienta negra', 'Comino', 'Ajinomoto', 'Laurel', 'Canela china',
+    'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
+  ],
+
+  // Alias por id. "chancho", "carne" y "pollo crudo" apuntan solo al crudo.
+  alias: {
+    'ins-res-cruda': 'carne, res',
+    'ins-chancho-crudo': 'chancho, cerdo',
+    'ins-pollo-deshuesado': 'pollo crudo',
+    'ins-portobello': 'hongo portobello',
+    'comp-sarsa': 'aderezo criollo, salsa criolla',
+    'comp-camote-frito': 'camote congelado'
+  },
+
+  // [id, nombre, grupo, estado, [[insumo_id, cantidad], ...]] — lo que lleva UN producto vendido.
+  recetas: [
+    ['rec-artesano', 'El Artesano', 'cultos', 'vigente', [['ins-masa-madre', 1], ['prep-fiambres', 1]]],
+    ['rec-bravo', 'El Bravo', 'cultos', 'vigente', [['ins-pan-cubano', 1], ['prep-panceta', 1]]],
+    ['rec-invicto', 'El Invicto', 'cultos', 'vigente',
+      [['ins-pan-cubano', 1], ['prep-pollo', 1], ['ins-palta', 0.5], ['ins-tomate', 0.5]]],
+    ['rec-fenomeno', 'El Fenómeno', 'cultos', 'vigente', [['ins-focaccia', 1], ['prep-portobello', 1]]],
+    // D3: sin camote (pendiente si lleva camote frito).
+    ['rec-incondicional', 'El Incondicional', 'cultos', 'vigente', [['ins-pan-cubano', 1], ['prep-asado', 1], ['ins-palta', 0.5]]],
+
+    ['rec-chicharron', 'Pan con chicharrón', 'criollos', 'vigente', [['ins-roseta', 1], ['prep-panceta', 1]]],
+    ['rec-asado-criollo', 'Asado criollo', 'criollos', 'vigente', [['ins-pan-cubano', 1], ['prep-asado', 1], ['ins-palta', 0.5]]],
+    // D1: solo la roseta (pendiente si el jamón va como proteína).
+    ['rec-butifarra', 'Butifarra', 'criollos', 'vigente', [['ins-roseta', 1]]],
+    ['rec-pollo-desh', 'Pollo deshilachado', 'criollos', 'provisional', [['ins-pan-cubano', 1], ['prep-pollo-desh', 1]]],
+    ['rec-choripan', 'Choripán vegano', 'criollos', 'sin_ficha', []],
+    ['rec-kids', 'Kids', 'criollos', 'sin_ficha', []],
+
+    // D4: 1 porción = bolsa de 200 g; la del combo grupal (150 g) vale 0.75.
+    ['rec-papas', 'Papas combo individual / extra', 'papas', 'vigente', [['ins-papas', 1]]],
+    ['rec-papas-grupal', 'Papas combo grupal (por persona)', 'papas', 'vigente', [['ins-papas', 0.75]]],
+    ['rec-combo-chicha', 'Combo papas + Chicha', 'papas', 'vigente', [['ins-papas', 1], ['beb-chicha', 1]]],
+    ['rec-combo-maracuya', 'Combo papas + Maracuyá', 'papas', 'vigente', [['ins-papas', 1], ['beb-maracuya', 1]]]
+  ]
+};
+
+// Nada trae stock ni mínimo inventado: todo lo que se cuenta arranca en 0 y sin mínimo, y lo que va al ojo en lleno.
+// Los números reales se ponen en la Revisión inicial y los mínimos en Productos.
+function cargarSemilla() {
+  soloDesdeEditor('cargarSemilla');
+  // Productos
+  const existentes = {};
+  leerTabla('Insumos').forEach((i) => { existentes[i.id] = true; });
+  const nuevos = [];
+  const producto = (id, nombre, categoria, medicion, unidad, nota, origen) => {
+    const ojo = medicion === 'ojo';
     return {
-      sinReceta: sinReceta,
-      descontado: nuevos.map((m) => ({ insumo_id: m.insumo_id, cantidad: m.cantidad })),
-      insumos: insumosActivos()
+      id: id, nombre: nombre, alias: SEMILLA.alias[id] || '', categoria: categoria, medicion: medicion, unidad: ojo ? '' : unidad,
+      stock_actual: ojo ? '' : 0, stock_minimo: ojo ? '' : 0, estado_actual: ojo ? NIVEL_INICIAL : '',
+      nota: nota || '', revisar: 'sí', activo: true, origen: origen
     };
+  };
+  SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, nota, origen]) => {
+    if (!existentes[id]) nuevos.push(producto(id, nombre, categoria, medicion, unidad, nota, origen));
   });
-}
-
-// ---------------------------------------------------------------------------
-// Acceso a las hojas
-// ---------------------------------------------------------------------------
-
-function hoja(nombre) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(nombre);
-  if (!sh) throw new ErrorApp('Falta la hoja ' + nombre + '. Ejecuta setup() en el Apps Script.', 'config');
-  return sh;
-}
-
-// Devuelve las filas como objetos { columna: valor, _fila: número de fila en la hoja }.
-function leerTabla(nombre) {
-  const valores = hoja(nombre).getDataRange().getValues();
-  const cab = valores.shift() || [];
-  const filas = [];
-  valores.forEach((r, i) => {
-    if (!r.some((v) => v !== '' && v !== null)) return;
-    filas.push(aObjeto(cab, r, i + 2));
+  SEMILLA.soloProduccion.forEach((nombre) => {
+    const id = 'ins-' + slug(nombre);
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'presentacion', 'porción', '', COMPRADO));
   });
-  return filas;
-}
-
-function aObjeto(cab, r, fila) {
-  const o = { _fila: fila };
-  cab.forEach((col, j) => { o[col] = normalizar(col, r[j]); });
-  return o;
-}
-
-function esColumnaTexto(col) {
-  return Boolean(FORMATO_TEXTO[col]) || col === 'id' || col.slice(-3) === '_id' ||
-    ['origen', 'alias', 'unidad', 'estado_actual', 'nota', 'revisar', 'al_ojo', 'pin_hash'].indexOf(col) >= 0;
-}
-
-// Si Sheets convirtió una fecha u hora en Date, la vuelve a texto en hora de Lima.
-function normalizar(col, v) {
-  if (FORMATO_TEXTO[col] && v instanceof Date) return Utilities.formatDate(v, TZ, FORMATO_TEXTO[col]);
-  if (esColumnaTexto(col)) return v === '' || v == null ? '' : String(v);
-  return v;
-}
-
-function aFila(nombre, obj) {
-  return HOJAS[nombre].map((col) => (obj[col] == null ? '' : obj[col]));
-}
-
-function agregarFilas(nombre, objs) {
-  if (!objs.length) return;
-  // Todo movimiento queda con el momento real en que se anotó, venga de donde venga.
-  if (nombre === 'Movimientos') {
-    const ahora = momentoReal();
-    objs.forEach((o) => { if (!o.momento) o.momento = ahora; });
-  }
-  const sh = hoja(nombre);
-  const desde = sh.getLastRow() + 1;
-  const faltan = desde + objs.length - 1 - sh.getMaxRows();
-  if (faltan > 0) sh.insertRowsAfter(sh.getMaxRows(), faltan);
-  sh.getRange(desde, 1, objs.length, HOJAS[nombre].length).setValues(objs.map((o) => aFila(nombre, o)));
-}
-
-// Borra solo las filas cuya columna `col` cumple `coincide`. Lee únicamente esa columna y borra
-// de abajo hacia arriba, por bloques seguidos. Nunca vacía la hoja entera. Devuelve cuántas borró.
-function borrarFilas(nombre, col, coincide) {
-  const sh = hoja(nombre);
-  const ultima = sh.getLastRow();
-  if (ultima < 2) return 0;
-  const filas = [];
-  sh.getRange(2, HOJAS[nombre].indexOf(col) + 1, ultima - 1, 1).getValues().forEach((r, k) => {
-    if (coincide(normalizar(col, r[0]))) filas.push(k + 2);
+  SEMILLA.soloProduccionOjo.forEach((nombre) => {
+    const id = 'ins-' + slug(nombre);
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'ojo', '', '', COMPRADO));
   });
-  if (!filas.length) return 0;
-  // Sheets no deja borrar todas las filas debajo del encabezado: si fuera el caso, primero agrega una vacía.
-  if (sh.getMaxRows() - filas.length < 2) sh.insertRowsAfter(sh.getMaxRows(), 1);
-  let k = filas.length - 1;
-  while (k >= 0) {
-    const fin = filas[k];
-    while (k > 0 && filas[k - 1] === filas[k] - 1) k--;
-    sh.deleteRows(filas[k], fin - filas[k] + 1);
-    k--;
-  }
-  return filas.length;
-}
+  agregarFilas('Insumos', nuevos);
 
-// Toda escritura pasa por aquí para que dos personas guardando a la vez no se pisen.
-function conBloqueo(fn) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(15000)) throw new ErrorApp('Hay otra persona guardando. Vuelve a intentar.', 'ocupado');
-  try {
-    return fn();
-  } finally {
-    SpreadsheetApp.flush();
-    lock.releaseLock();
-  }
-}
+  // Recetas: solo se cargan los ingredientes de las recetas que recién se crean.
+  const recetasExistentes = {};
+  leerTabla('Recetas').forEach((r) => { recetasExistentes[r.id] = true; });
+  const recetas = [];
+  const ingredientes = [];
+  SEMILLA.recetas.forEach(([id, nombre, grupo, estado, items]) => {
+    if (recetasExistentes[id]) return;
+    recetas.push({ id: id, nombre: nombre, grupo: grupo, estado: estado, revisar: 'sí', activa: true, notas: '' });
+    items.forEach(([insumoId, cantidad]) =>
+      ingredientes.push({ receta_id: id, insumo_id: insumoId, cantidad: cantidad, al_ojo: '' }));
+  });
+  agregarFilas('Recetas', recetas);
+  agregarFilas('RecetaIngredientes', ingredientes);
 
-// ---------------------------------------------------------------------------
-// Utilidades
-// ---------------------------------------------------------------------------
-
-// "Hoy" es el día de operación: antes de HORA_CORTE_DIA todavía es el día anterior (Lima no cambia de horario).
-function hoyLima() { return Utilities.formatDate(new Date(Date.now() - HORA_CORTE_DIA * 60 * 60 * 1000), TZ, 'yyyy-MM-dd'); }
-function horaLima() { return Utilities.formatDate(new Date(Date.now()), TZ, 'HH:mm'); }
-function ahoraLima() { return Utilities.formatDate(new Date(Date.now()), TZ, 'yyyy-MM-dd HH:mm'); }
-// Fecha calendario y hora reales de Lima, con segundos (sin el corte del día de operación).
-function momentoReal() { return Utilities.formatDate(new Date(Date.now()), TZ, 'yyyy-MM-dd HH:mm:ss'); }
-// Movimientos sin momento (no debería haber) se ordenan con su fecha y hora.
-function momentoDe(m) { return m.momento || (m.fecha + ' ' + m.hora); }
-
-function validarFecha(f) {
-  const s = String(f || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new ErrorApp('Fecha inválida.', 'datos');
-  if (s > hoyLima()) throw new ErrorApp('No se puede registrar un día que todavía no llega.', 'datos');
-  return s;
-}
-
-function validarNumero(v, nombre) {
-  const n = Number(String(v).replace(',', '.'));
-  if (vacio(v) || !isFinite(n) || n < 0) throw new ErrorApp('Revisa ' + nombre + ': tiene que ser un número.', 'datos');
-  return redondear(n);
-}
-
-function vacio(v) { return v === '' || v == null; }
-function num(v) { return Number(v) || 0; }
-function redondear(n) { return Math.round(n * 1000) / 1000; }
-function activo(v) {
-  const s = String(v).trim().toUpperCase();
-  return v !== false && s !== 'FALSE' && s !== 'NO';
-}
-function sinVacios(lista) { return lista.filter(Boolean); }
-function capital(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-// "12 porciones", "1 jarra", "1.5 kg". Mismas reglas que la pantalla (js/app.js).
-function cantidadTexto(n, unidad) {
-  let valor = num(n);
-  let u = unidad || '';
-  if (u === 'g' && Math.abs(valor) >= 1000) { valor = redondear(valor / 1000); u = 'kg'; }
-  return valor + ' ' + (Math.abs(valor) === 1 ? u : plural(u));
-}
-function plural(u) {
-  if (!u || u === 'g' || u === 'kg') return u;
-  if (/ón$/.test(u)) return u.slice(0, -2) + 'ones';
-  if (/[aeiouáéíóú]$/.test(u)) return u + 's';
-  return u + 'es';
-}
-// "sí" / "si" / VERDADERO en el Sheet.
-function marcado(v) {
-  const s = String(v).trim().toLowerCase();
-  return v === true || s === 'sí' || s === 'si' || s === 'true';
-}
-function mismoNombre(a, b) { return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); }
-function nuevoId(prefijo) { return prefijo + '-' + Utilities.getUuid().slice(0, 8); }
-function slug(s) {
-  return quitarTildes(String(s).toLowerCase()).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
-// Quita las tildes. Escrito solo con caracteres ASCII para que copiar y pegar el archivo no lo rompa.
-const TILDES = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
-function quitarTildes(s) {
-  return s.normalize('NFD').replace(TILDES, '');
+  recalcularStocks();
+  console.log('Semilla: ' + nuevos.length + ' productos y ' + recetas.length + ' recetas nuevas (por revisar).');
 }
