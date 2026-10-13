@@ -9,6 +9,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Si la terminal se abrió antes de instalar Node.js, clasp todavía no está en el PATH: se agrega aquí.
+command -v clasp >/dev/null || export PATH="/c/Program Files/nodejs:$(cygpath -u "${APPDATA:-}")/npm:$PATH"
+command -v clasp >/dev/null || { echo "No encuentro clasp. Instálalo con: npm install -g @google/clasp@2.4.2" >&2; exit 1; }
+
 grep -q PEGAR_AQUI .clasp.json && { echo 'Falta el ID del proyecto en .clasp.json (ver README).' >&2; exit 1; }
 
 # No se sube nada si alguna prueba del servidor falla.
