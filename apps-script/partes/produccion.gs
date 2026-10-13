@@ -74,5 +74,8 @@ function registrarProduccion(d, ctx) {
   });
 }
 
-registrar('cargarProduccion', cargarProduccion);
-registrar('registrarProduccion', registrarProduccion);
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_PRODUCCION = {
+  cargarProduccion: { fn: cargarProduccion },
+  registrarProduccion: { fn: registrarProduccion }
+};

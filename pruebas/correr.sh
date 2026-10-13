@@ -3,15 +3,18 @@
 # con config.js vacío, así nunca se conecta al Apps Script real (ni gasta intentos de PIN).
 #
 #   bash pruebas/correr.sh              servidor y pantallas
-#   bash pruebas/correr.sh servidor     solo el servidor (Code.gs)
+#   bash pruebas/correr.sh servidor     solo el servidor (apps-script/partes/)
 #   bash pruebas/correr.sh pantallas    solo las pantallas (recorre la app como admin y como cocina)
 #
-# Sale con error si alguna prueba falla o si Code.gs no está armado con las partes de hoy.
+# Sale con error si alguna prueba falla o si la lista de partes de js/demo.js no coincide con apps-script/partes/.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 EDGE="${EDGE:-/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe}"
-bash apps-script/armar.sh --revisar || exit 1
+# La lista de partes (js/demo.js) tiene que coincidir con los archivos de apps-script/partes/.
+lista=$(sed -n '/PARTES: \[/,/\]/p' js/demo.js | grep -oE "'[a-z]+'" | tr -d "'" | sort)
+carpeta=$(ls apps-script/partes/*.gs | xargs -n1 basename | sed 's/\.gs$//' | sort)
+if [ "$lista" != "$carpeta" ]; then echo 'La lista PARTES de js/demo.js no coincide con apps-script/partes/:' >&2; diff <(echo "$lista") <(echo "$carpeta") >&2; exit 1; fi
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

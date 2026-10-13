@@ -6,3 +6,6 @@ desktop.ini
 # Editor
 .vscode/
 *.swp
+
+# clasp: la sesión de Google queda en la carpeta del usuario, nunca en el repo
+.clasprc.json

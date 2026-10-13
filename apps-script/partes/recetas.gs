@@ -71,6 +71,9 @@ function guardarReceta(d) {
   });
 }
 
-registrar('cargarRecetas', cargarRecetas);
-registrar('crearReceta', crearReceta, { soloAdmin: true });
-registrar('guardarReceta', guardarReceta, { soloAdmin: true });
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_RECETAS = {
+  cargarRecetas: { fn: cargarRecetas },
+  crearReceta: { fn: crearReceta, soloAdmin: true },
+  guardarReceta: { fn: guardarReceta, soloAdmin: true }
+};

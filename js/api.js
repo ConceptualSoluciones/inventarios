@@ -113,7 +113,7 @@
     return json.data;
   }
 
-  // ---------- modo demo: corre apps-script/Code.gs (armado, trae la semilla) en el navegador (ver js/demo.js) ----------
+  // ---------- modo demo: corre las partes de apps-script/partes/ en el navegador (ver js/demo.js) ----------
   const Demo = (() => {
     let cargando = null;
     const cargarScript = (src) => new Promise((ok, falla) => {
@@ -124,7 +124,7 @@
       document.head.append(s);
     });
     const cargar = () => cargando || (cargando = cargarScript('js/demo.js')
-      .then(() => cargarScript('apps-script/Code.gs')));
+      .then(() => Promise.all(window.SantoDemo.PARTES.map((p) => cargarScript('apps-script/partes/' + p + '.gs')))));
 
     async function atender(accion, datos, pin) {
       await cargar();

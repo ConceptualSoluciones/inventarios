@@ -49,5 +49,8 @@ function registrarCompras(d, ctx) {
   });
 }
 
-registrar('cargarCompras', cargarCompras);
-registrar('registrarCompras', registrarCompras);
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_COMPRAS = {
+  cargarCompras: { fn: cargarCompras },
+  registrarCompras: { fn: registrarCompras }
+};

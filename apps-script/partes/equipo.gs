@@ -5,8 +5,11 @@
 
 const ROLES = ['admin', 'cocina'];
 
-registrar('verificarPin', (d, ctx) => ({ nombre: ctx.usuario, rol: ctx.rol }));
-registrar('cerrarSesion', cerrarSesion);
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_EQUIPO = {
+  verificarPin: { fn: (d, ctx) => ({ nombre: ctx.usuario, rol: ctx.rol }) },
+  cerrarSesion: { fn: cerrarSesion }
+};
 
 const MAX_FALLOS = 10;              // PINs equivocados...
 const VENTANA_FALLOS_S = 10 * 60;   // ...en 10 minutos...
@@ -111,7 +114,7 @@ function anotarFallo(cache) {
   }
 }
 
-// accion: lo que guardó registrar() (con su marca soloAdmin).
+// accion: { fn, soloAdmin } de la lista ACCIONES_<PARTE> que la declara.
 function revisarPermiso(accion, persona) {
   if (persona.rol === 'admin') return;
   if (accion.soloAdmin) throw new ErrorApp('Esto lo puede hacer solo un admin.', 'permiso');

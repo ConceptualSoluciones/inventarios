@@ -33,4 +33,7 @@ function cargarMovimientos(d) {
   };
 }
 
-registrar('cargarMovimientos', cargarMovimientos);
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_MOVIMIENTOS = {
+  cargarMovimientos: { fn: cargarMovimientos }
+};

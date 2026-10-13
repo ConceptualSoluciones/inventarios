@@ -102,5 +102,8 @@ function recetasQueLlevan(insumoId, conOjo) {
   return leerTabla('Recetas').filter((r) => activo(r.activa) && ids[r.id]).map((r) => r.nombre);
 }
 
-registrar('crearProducto', crearProducto, { soloAdmin: true });
-registrar('guardarProducto', guardarProducto, { soloAdmin: true });
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_PRODUCTOS = {
+  crearProducto: { fn: crearProducto, soloAdmin: true },
+  guardarProducto: { fn: guardarProducto, soloAdmin: true }
+};

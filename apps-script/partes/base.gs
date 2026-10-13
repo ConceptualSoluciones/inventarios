@@ -1,12 +1,12 @@
 /**
  * SANTO — backend en Google Apps Script.
  *
- * Se pega en Extensiones › Apps Script del Google Sheet y se publica como aplicación web.
+ * Vive en el Apps Script del Google Sheet (Extensiones › Apps Script) y se publica como aplicación web.
  * La web manda POST con { action, token o pin, data } y recibe { ok, data } o { ok: false, error, code }.
  *
- * El código vive separado por tema en apps-script/partes/ y `bash apps-script/armar.sh` lo junta en
- * apps-script/Code.gs, que es lo único que se pega en el Apps Script (trae también la semilla).
- * Cada parte registra las acciones que atiende con registrar(nombre, función, { soloAdmin }).
+ * El código está separado por tema en apps-script/partes/ y `clasp push` sube cada parte como un archivo
+ * del proyecto (ver README). Apps Script comparte las variables entre archivos, y ninguna parte depende de que
+ * otra cargue antes: cada parte declara sus acciones en ACCIONES_<PARTE> y acciones() las junta al atender.
  *
  * Antes de usarlo:
  *   1. Ejecutar setup() una vez desde el editor (crea las hojas y carga la semilla).
@@ -159,13 +159,21 @@ class ErrorApp extends Error {
   }
 }
 
-// Lo que la web puede pedir. Cada parte registra sus acciones con registrar().
-const ACCIONES = {};
-
-// soloAdmin: "cocina" no la puede pedir. Todo lo que se puede anotar en un día pasado es soloAdmin,
+// Lo que la web puede pedir. Cada parte declara las suyas en una variable ACCIONES_<PARTE>, por ejemplo:
+//   var ACCIONES_COMPRAS = { cargarCompras: { fn: cargarCompras }, registrarCompras: { fn: registrarCompras } };
+// soloAdmin: true → "cocina" no la puede pedir. Todo lo que se puede anotar en un día pasado es soloAdmin,
 // así que solo un admin corrige días pasados.
-function registrar(nombre, fn, opciones) {
-  ACCIONES[nombre] = { fn: fn, soloAdmin: Boolean(opciones && opciones.soloAdmin) };
+// Las listas se juntan al atender cada pedido, no al cargar los archivos: así no importa en qué orden
+// carga Apps Script los archivos. Van con "var" (no const) para que se puedan encontrar por su nombre.
+function acciones() {
+  const todas = {};
+  Object.keys(globalThis).filter((k) => k.indexOf('ACCIONES_') === 0).forEach((k) => {
+    Object.keys(globalThis[k]).forEach((nombre) => {
+      if (todas[nombre]) throw new Error('La acción ' + nombre + ' está en dos partes (' + k + ').');
+      todas[nombre] = globalThis[k][nombre];
+    });
+  });
+  return todas;
 }
 
 function doPost(e) {
@@ -180,7 +188,7 @@ function doPost(e) {
     // El nombre de quien registra sale de su sesión (o de su PIN al ingresar), nunca de lo que manda la pantalla.
     const persona = identificar(pedido);
     revisarHojas();
-    const accion = ACCIONES[pedido.action];
+    const accion = acciones()[pedido.action];
     if (!accion) throw new ErrorApp('Acción desconocida.', 'accion');
     const data = pedido.data || {};
     revisarPermiso(accion, persona);

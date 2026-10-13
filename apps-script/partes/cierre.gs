@@ -78,6 +78,9 @@ function guardarVentas(d, ctx) {
   });
 }
 
-registrar('cambiarNivel', cambiarNivel, { soloAdmin: true });
-registrar('cargarVentas', cargarVentas);
-registrar('guardarVentas', guardarVentas, { soloAdmin: true });
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_CIERRE = {
+  cambiarNivel: { fn: cambiarNivel, soloAdmin: true },
+  cargarVentas: { fn: cargarVentas },
+  guardarVentas: { fn: guardarVentas, soloAdmin: true }
+};

@@ -23,8 +23,25 @@ Cada página tiene su propio archivo en la pantalla y en el servidor. Un cambio 
 
 - **Piezas comunes de la pantalla** (`js/base/`): formatos de cantidades, buscador, botones de número, avisos y niveles al ojo. `js/app.js` solo abre la página que corresponde.
 - **Piezas comunes del servidor** (`apps-script/partes/`): `base.gs` (forma de las hojas y entrada web), `equipo.gs` (PIN, roles y sesiones), `hojas.gs` (leer y escribir el Sheet), `stock.gs` (movimientos y stock) y `avisos.gs` (Telegram y respaldo). Los datos iniciales están en `semilla.gs`.
-- **En el Apps Script se pega un solo archivo:** `apps-script/Code.gs`. Se arma juntando las partes con `bash apps-script/armar.sh`; no se edita a mano.
+- **El servidor no se pega a mano:** `bash publicar.sh` sube cada parte al Apps Script como un archivo propio (con clasp) y publica una versión nueva. Ver "Publicar el servidor".
+- **El orden de los archivos no importa:** cada parte declara sus acciones en una lista `ACCIONES_<PARTE>` y el servidor las junta al atender cada pedido. Las pruebas cargan las partes al revés a propósito para comprobarlo.
 - **Pruebas:** `bash pruebas/correr.sh` recorre la app en modo demo como admin y como cocina. Nunca se conecta al Apps Script real.
+
+## Publicar el servidor
+
+### Una sola vez (la dueña o quien administra la cuenta de Google del Sheet)
+
+1. **Instalar Node.js:** bajar la versión "LTS" de <https://nodejs.org> e instalarla con las opciones que trae.
+2. **Instalar clasp:** abrir una terminal y escribir `npm install -g @google/clasp@2.4.2`.
+3. **Activar la API de Apps Script:** entrar a <https://script.google.com/home/usersettings> con la cuenta dueña del Sheet y poner **"API de Google Apps Script"** en **Activada**.
+4. **Iniciar sesión:** en la terminal, escribir `clasp login`. Se abre el navegador: elegir la cuenta dueña del Sheet y aceptar. La sesión queda guardada en esa computadora (no en el proyecto).
+5. **Copiar el ID del proyecto:** en el Apps Script, **Configuración del proyecto** (el engranaje) › **IDs** › **ID de la secuencia de comandos**. Ese texto va en `.clasp.json`, en lugar de `PEGAR_AQUI_EL_ID_DEL_PROYECTO`.
+
+La primera vez que se sube, clasp reemplaza todo lo que había en el Apps Script: `Code.gs` y `Semilla.gs` desaparecen y quedan las partes (`partes/base`, `partes/compras`…) y `appsscript.json`. No hace falta borrarlos a mano.
+
+### Cada vez que cambia el servidor
+
+`bash publicar.sh` corre las pruebas del servidor, sube las partes y publica una versión nueva en la misma implementación (la dirección de la app no cambia). Si una prueba falla, no sube nada.
 
 ## Cómo se usa en el día a día
 

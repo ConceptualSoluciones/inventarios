@@ -28,4 +28,7 @@ function guardarRevision(d, ctx) {
   });
 }
 
-registrar('guardarRevision', guardarRevision, { soloAdmin: true });
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_REVISION = {
+  guardarRevision: { fn: guardarRevision, soloAdmin: true }
+};

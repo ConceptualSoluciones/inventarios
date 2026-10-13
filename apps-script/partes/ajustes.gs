@@ -38,5 +38,8 @@ function ajustarStock(d, ctx) {
   });
 }
 
-registrar('guardarMinimos', guardarMinimos, { soloAdmin: true });
-registrar('ajustarStock', ajustarStock, { soloAdmin: true });
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_AJUSTES = {
+  guardarMinimos: { fn: guardarMinimos, soloAdmin: true },
+  ajustarStock: { fn: ajustarStock, soloAdmin: true }
+};

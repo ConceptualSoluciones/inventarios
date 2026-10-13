@@ -1,6 +1,9 @@
 <!doctype html><meta charset="utf-8"><pre id="out"></pre>
 <script src="web/js/demo.js"></script>
-<script src="web/apps-script/Code.gs"></script>
+<script>
+// Las partes se cargan al revés a propósito: prueba que el orden de los archivos no importa (como en Apps Script).
+[...SantoDemo.PARTES].reverse().forEach((p) => document.write('<script src="web/apps-script/partes/' + p + '.gs"><\/script>'));
+</script>
 <script>
 const out = [];
 const log = (s) => out.push(s);
@@ -14,6 +17,11 @@ try {
   const inv = () => llamar(adm, 'cargarInventario').data.insumos;
   const p = (id) => inv().find((i) => i.id === id);
   const hoy = hoyLima();
+
+  // Acciones: las 20 de siempre, 9 solo para admin, juntadas de las listas ACCIONES_<PARTE>.
+  const lasAcciones = acciones();
+  ok(Object.keys(lasAcciones).length === 20 && Object.keys(lasAcciones).filter((k) => lasAcciones[k].soloAdmin).length === 9,
+    'acciones: 20, de ellas 9 solo admin (' + Object.keys(lasAcciones).length + ')');
 
   let ins = inv();
   ok(ins.length === 71, 'semilla: 71 productos (' + ins.length + ')');

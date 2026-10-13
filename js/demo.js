@@ -1,5 +1,5 @@
 /* SANTO — modo demo.
-   Imita lo mínimo de Google Sheets y Apps Script para correr el MISMO apps-script/Code.gs (armado desde partes/)
+   Imita lo mínimo de Google Sheets y Apps Script para correr el MISMO código del servidor (apps-script/partes/)
    en el navegador, con los datos en memoria (se pierden al recargar). Solo se usa sin URL en config.js
    y abriendo el index.html desde la computadora. */
 (function () {
@@ -152,6 +152,10 @@
   let listo = false;
   window.SantoDemo = {
     libro,
+    // Las partes del servidor (apps-script/partes/*.gs). Es la única lista: la usan el modo demo y las pruebas,
+    // y pruebas/correr.sh revisa que coincida con la carpeta. El orden no importa.
+    PARTES: ['base', 'equipo', 'hojas', 'stock', 'avisos', 'hoy', 'inventario', 'productos', 'compras', 'produccion',
+      'cierre', 'recetas', 'revision', 'movimientos', 'ajustes', 'semilla'],
     // Mismo formato que el fetch real: devuelve el JSON que respondería doPost.
     sha256,
     llamar(cuerpo) {

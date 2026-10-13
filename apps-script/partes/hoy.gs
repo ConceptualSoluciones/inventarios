@@ -20,4 +20,7 @@ function cargarHoy() {
   };
 }
 
-registrar('cargarHoy', cargarHoy);
+// Acciones que atiende esta parte (ver acciones() en base.gs).
+var ACCIONES_HOY = {
+  cargarHoy: { fn: cargarHoy }
+};
