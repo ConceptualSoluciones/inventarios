@@ -104,9 +104,10 @@
       throw new ApiError((json && json.error) || 'Ocurrió un error. Intenta de nuevo.', (json && json.code) || 'servidor');
     }
     recibir(json);
-    // Un backend anterior a las formas de medir manda las casillas sin "medicion": la app no sabría mostrarlas.
+    // Un backend anterior al rediseño (unidad, gramos, presentación, al ojo) manda los productos sin "alias":
+    // la app no sabría mostrarlos.
     const insumos = json.data && json.data.insumos;
-    if (Array.isArray(insumos) && insumos.length && insumos.every((i) => !('medicion' in i))) {
+    if (Array.isArray(insumos) && insumos.length && insumos.every((i) => !('alias' in i))) {
       throw new ApiError(MSJ_VERSION, 'config');
     }
     return json.data;
@@ -151,19 +152,15 @@
       try { await llamar('cerrarSesion'); } catch (e) { /* se borra igual en el celular */ }
       sesion.olvidarPin();
     },
-    cargarHoy: (fecha) => llamar('cargarHoy', { fecha }),
-    cambiarEstado: (d) => llamar('cambiarEstado', d),
-    anotarControl: (d) => llamar('anotarControl', d),
-    hiceUnLote: (d) => llamar('hiceUnLote', d),
     cargarInventario: () => llamar('cargarInventario'),
-    crearInsumo: (d) => llamar('crearInsumo', d),
+    cambiarNivel: (d) => llamar('cambiarNivel', d),
+    crearProducto: (d) => llamar('crearProducto', d),
+    guardarProducto: (d) => llamar('guardarProducto', d),
     registrarEntradas: (d) => llamar('registrarEntradas', d),
     guardarRevision: (d) => llamar('guardarRevision', d),
     cargarMovimientos: (d) => llamar('cargarMovimientos', d),
     guardarMinimos: (d) => llamar('guardarMinimos', d),
     ajustarStock: (d) => llamar('ajustarStock', d),
-    guardarLote: (d) => llamar('guardarLote', d),
-    cambiarMedicion: (d) => llamar('cambiarMedicion', d),
     cargarRecetas: () => llamar('cargarRecetas'),
     crearReceta: (d) => llamar('crearReceta', d),
     guardarReceta: (d) => llamar('guardarReceta', d),

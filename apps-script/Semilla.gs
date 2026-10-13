@@ -1,77 +1,79 @@
 /**
- * SANTO — datos iniciales (salen de RECETAS.md, revisado con cocina el 07/10/2026).
+ * SANTO — datos iniciales (salen de RECETAS.md: la ficha de la dueña, revisada con cocina el 07/10/2026).
+ *
+ * Todo se carga como BORRADOR: productos y recetas quedan marcados "por revisar" para que la dueña los
+ * corrija en las pantallas de Productos y Recetas.
  *
  * cargarSemilla() agrega lo que falta, comparando por id. No duplica nada si se corre dos veces
- * y no toca lo que ya existe (si cocina cambió una receta en la app, se respeta).
- * Formas de medir: conteo (porciones o unidades), nivel (salsas) y marcar (hay / falta).
- * Ya no se usan gramos: el gramaje queda solo como texto de referencia.
+ * y no toca lo que ya existe (si alguien lo cambió en la app, se respeta).
+ *
+ * Formas de medir: unidad, gramos, presentacion (lo producido: porción, jarra…) y ojo (lleno · medio · bajo · vacío).
+ * Lo que la ficha tenía en "Hay / Falta" pasa a "al ojo", salvo lo que la lógica nueva nombra:
+ * huevos por unidad, queso y pollo crudo por gramos y el camote frito por porción.
  */
 
 const SEMILLA = {
-  // [id, nombre, categoria, medicion, unidad_base, gramaje_ref]
+  // [id, nombre, categoria, medicion, unidad, nota]
   insumos: [
-    // Proteínas: conteo en porciones, con control del día.
-    ['prep-panceta', 'Panceta / Chicharrón', 'Proteínas', 'conteo', 'porción', '140 g'],
-    ['prep-pollo', 'Pollo Invicto', 'Proteínas', 'conteo', 'porción', '150 g crudo'],
-    ['prep-asado', 'Asado', 'Proteínas', 'conteo', 'porción', '120 g'],
-    ['prep-portobello', 'Portobello anticuchero', 'Proteínas', 'conteo', 'porción', '90 g'],
-    ['prep-fiambres', 'Mix fiambres Artesano', 'Proteínas', 'conteo', 'porción', '90 g'],
-    ['prep-pollo-desh', 'Pollo deshilachado', 'Proteínas', 'conteo', 'porción', '140 g'],
+    // Carnes y proteínas: porciones producidas. La nota es el gramaje de referencia de la ficha.
+    ['prep-panceta', 'Panceta / Chicharrón', 'Carnes y proteínas', 'presentacion', 'porción', '140 g'],
+    ['prep-pollo', 'Pollo Invicto', 'Carnes y proteínas', 'presentacion', 'porción', '150 g crudo'],
+    ['prep-asado', 'Asado', 'Carnes y proteínas', 'presentacion', 'porción', '120 g'],
+    ['prep-portobello', 'Portobello anticuchero', 'Carnes y proteínas', 'presentacion', 'porción', '90 g'],
+    ['prep-fiambres', 'Mix fiambres Artesano', 'Carnes y proteínas', 'presentacion', 'porción', '90 g'],
+    ['prep-pollo-desh', 'Pollo deshilachado', 'Carnes y proteínas', 'presentacion', 'porción', '140 g'],
 
-    // Panes, palta, tomate y papas: conteo.
-    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'conteo', 'unidad', ''],
-    ['ins-roseta', 'Roseta', 'Panes', 'conteo', 'unidad', ''],
-    ['ins-focaccia', 'Focaccia', 'Panes', 'conteo', 'unidad', ''],
-    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'conteo', 'unidad', ''],
-    ['ins-palta', 'Palta', 'Verduras', 'conteo', 'unidad', '1 palta = 2 panes'],
-    ['ins-tomate', 'Tomate', 'Verduras', 'conteo', 'unidad', '1 tomate = 2 panes'],
-    ['ins-papas', 'Papas congeladas', 'Congelados', 'conteo', 'porción', 'bolsa de 200 g'],
+    // Panes, palta, tomate, papas y camote.
+    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'unidad', 'unidad', ''],
+    ['ins-roseta', 'Roseta', 'Panes', 'unidad', 'unidad', ''],
+    ['ins-focaccia', 'Focaccia', 'Panes', 'unidad', 'unidad', ''],
+    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'unidad', 'unidad', ''],
+    ['ins-palta', 'Palta', 'Verduras', 'unidad', 'unidad', '1 palta = 2 panes'],
+    ['ins-tomate', 'Tomate', 'Verduras', 'unidad', 'unidad', '1 tomate = 2 panes'],
+    ['ins-papas', 'Papas congeladas', 'Congelados', 'presentacion', 'porción', 'bolsa de 200 g'],
+    ['comp-camote-frito', 'Camote frito', 'Complementos', 'presentacion', 'porción', ''],
 
-    // Salsas: nivel del pote.
-    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas', 'nivel', '', ''],
-    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas', 'nivel', '', ''],
-    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas', 'nivel', '', ''],
-    ['sal-aji-huacatay', 'Ají amarillo con ajo y huacatay', 'Salsas', 'nivel', '', ''],
-    ['sal-golf', 'Golf ahumada', 'Salsas', 'nivel', '', ''],
-    ['sal-culantro', 'Culantro y cebollín', 'Salsas', 'nivel', '', ''],
-    ['sal-pesto', 'Pesto de albahaca', 'Salsas', 'nivel', '', ''],
-    ['sal-glaseado', 'Glaseado Bravo', 'Salsas', 'nivel', '', ''],
-    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas', 'nivel', '', ''],
+    // Salsas y aderezos: al ojo, con la botella dispensadora.
+    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-aji-huacatay', 'Ají amarillo con ajo y huacatay', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-golf', 'Golf ahumada', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-culantro', 'Culantro y cebollín', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-pesto', 'Pesto de albahaca', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-glaseado', 'Glaseado Bravo', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas y aderezos', 'ojo', '', ''],
 
-    // Ingredientes: solo se marca si hay o si falta.
-    ['ins-lechuga', 'Lechuga', 'Verduras', 'marcar', '', ''],
-    ['ins-arugula', 'Arúgula', 'Verduras', 'marcar', '', ''],
-    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'marcar', '', ''],
-    ['comp-camote-frito', 'Camote frito', 'Complementos', 'marcar', '', ''],
-    ['comp-aros', 'Aros de cebolla', 'Complementos', 'marcar', '', ''],
-    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'marcar', '', ''], // D2: pendiente si se quita
-    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'marcar', '', ''],
-    ['ins-paria', 'Queso Paria', 'Lácteos', 'marcar', '', ''],
-    ['ins-harina', 'Harina', 'Secos', 'marcar', '', ''],
-    ['ins-huevo', 'Huevo', 'Secos', 'marcar', '', ''],
-    ['ins-panko', 'Panko', 'Secos', 'marcar', '', '']
+    // Verduras y complementos al ojo.
+    ['ins-lechuga', 'Lechuga', 'Verduras', 'ojo', '', ''],
+    ['ins-arugula', 'Arúgula', 'Verduras', 'ojo', '', ''],
+    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'ojo', '', ''],
+    ['comp-aros', 'Aros de cebolla', 'Complementos', 'ojo', '', ''],
+    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'ojo', '', ''], // D2: pendiente si se quita
+    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'ojo', '', ''],
+
+    // Lácteos y secos.
+    ['ins-paria', 'Queso Paria', 'Lácteos', 'gramos', 'g', ''],
+    ['ins-huevo', 'Huevo', 'Secos', 'unidad', 'unidad', ''],
+    ['ins-harina', 'Harina', 'Secos', 'ojo', '', ''],
+    ['ins-panko', 'Panko', 'Secos', 'ojo', '', ''],
+
+    // Bebidas.
+    ['beb-chicha', 'Chicha', 'Bebidas', 'unidad', 'unidad', ''],
+    ['beb-maracuya', 'Maracuyá', 'Bebidas', 'unidad', 'unidad', '']
   ],
 
-  // Insumos solo de producción: se marcan (hay / falta). Su id sale del nombre ("ins-" + slug).
+  // Insumos solo de producción: al ojo. Su id sale del nombre ("ins-" + slug).
   soloProduccion: [
     'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido', 'Ajinomoto', 'Sal', 'Pimienta negra', 'Comino', 'Laurel',
     'Canela china', 'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
     'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate', 'Camote',
-    'Pollo deshuesado', 'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
+    'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
   ],
-
-  // Bebidas: se venden solas (conteo, unidades). [id, nombre]
-  bebidas: [
-    ['beb-chicha', 'Chicha'],
-    ['beb-maracuya', 'Maracuyá']
-  ],
-
-  // Lo que descuenta "Hice un lote". La cantidad por lote arranca vacía: cocina la define en Ajustes.
-  // { salsa: insumo que se descuenta }
-  lotes: { 'sal-glaseado': 'beb-chicha' },
+  // Solo producción, pero crudo comprado: por gramos. [nombre]
+  soloProduccionGramos: ['Pollo deshuesado'],
 
   // [id, nombre, grupo, estado, [[insumo_id, cantidad], ...]] — lo que lleva UN producto vendido.
-  // Solo casillas de conteo: porciones (proteínas y papas) o unidades.
   recetas: [
     ['rec-artesano', 'El Artesano', 'cultos', 'vigente', [['ins-masa-madre', 1], ['prep-fiambres', 1]]],
     ['rec-bravo', 'El Bravo', 'cultos', 'vigente', [['ins-pan-cubano', 1], ['prep-panceta', 1]]],
@@ -97,30 +99,32 @@ const SEMILLA = {
   ]
 };
 
-// Nada trae stock ni mínimo inventado: todo lo que se cuenta arranca en 0 y sin mínimo.
-// Los números reales se ponen en la Revisión inicial y los mínimos en Ajustes.
+// Nada trae stock ni mínimo inventado: todo lo que se cuenta arranca en 0 y sin mínimo, y lo que va al ojo en lleno.
+// Los números reales se ponen en la Revisión inicial y los mínimos en Productos.
 function cargarSemilla() {
   soloDesdeEditor('cargarSemilla');
-  // Casillas
+  // Productos
   const existentes = {};
   leerTabla('Insumos').forEach((i) => { existentes[i.id] = true; });
   const nuevos = [];
-  const insumo = (id, nombre, categoria, tipo, medicion, unidad, gramaje) => ({
-    id: id, nombre: nombre, categoria: categoria, tipo: tipo, medicion: medicion,
-    unidad_base: medicion === 'conteo' ? unidad : '', gramaje_ref: gramaje || '',
-    stock_actual: medicion === 'conteo' ? 0 : '', stock_minimo: medicion === 'conteo' ? 0 : '',
-    estado_actual: ESTADO_INICIAL[medicion] || '',
-    lote_insumo_id: SEMILLA.lotes[id] || '', lote_cantidad: '', proveedor: '', activo: true
-  });
-  SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, gramaje]) => {
-    if (!existentes[id]) nuevos.push(insumo(id, nombre, categoria, 'ingrediente', medicion, unidad, gramaje));
+  const producto = (id, nombre, categoria, medicion, unidad, nota) => {
+    const ojo = medicion === 'ojo';
+    return {
+      id: id, nombre: nombre, alias: '', categoria: categoria, medicion: medicion, unidad: ojo ? '' : unidad,
+      stock_actual: ojo ? '' : 0, stock_minimo: ojo ? '' : 0, estado_actual: ojo ? NIVEL_INICIAL : '',
+      nota: nota || '', revisar: 'sí', activo: true
+    };
+  };
+  SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, nota]) => {
+    if (!existentes[id]) nuevos.push(producto(id, nombre, categoria, medicion, unidad, nota));
   });
   SEMILLA.soloProduccion.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(insumo(id, nombre, 'Solo producción', 'ingrediente', 'marcar', '', ''));
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'ojo', '', ''));
   });
-  SEMILLA.bebidas.forEach(([id, nombre]) => {
-    if (!existentes[id]) nuevos.push(insumo(id, nombre, 'Bebidas', 'bebida', 'conteo', 'unidad', ''));
+  SEMILLA.soloProduccionGramos.forEach((nombre) => {
+    const id = 'ins-' + slug(nombre);
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'gramos', 'g', ''));
   });
   agregarFilas('Insumos', nuevos);
 
@@ -131,12 +135,13 @@ function cargarSemilla() {
   const ingredientes = [];
   SEMILLA.recetas.forEach(([id, nombre, grupo, estado, items]) => {
     if (recetasExistentes[id]) return;
-    recetas.push({ id: id, nombre: nombre, grupo: grupo, estado: estado, activa: true, notas: '' });
-    items.forEach(([insumoId, cantidad]) => ingredientes.push({ receta_id: id, insumo_id: insumoId, cantidad: cantidad }));
+    recetas.push({ id: id, nombre: nombre, grupo: grupo, estado: estado, revisar: 'sí', activa: true, notas: '' });
+    items.forEach(([insumoId, cantidad]) =>
+      ingredientes.push({ receta_id: id, insumo_id: insumoId, cantidad: cantidad, al_ojo: '' }));
   });
   agregarFilas('Recetas', recetas);
   agregarFilas('RecetaIngredientes', ingredientes);
 
   recalcularStocks();
-  console.log('Semilla: ' + nuevos.length + ' casillas y ' + recetas.length + ' recetas nuevas.');
+  console.log('Semilla: ' + nuevos.length + ' productos y ' + recetas.length + ' recetas nuevas (por revisar).');
 }

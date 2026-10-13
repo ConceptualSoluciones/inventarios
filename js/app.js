@@ -8,7 +8,6 @@
 
   const estado = {
     vistaId: 0,          // cambia en cada render; las cargas que llegan tarde se ignoran
-    fechaHoy: null,      // día elegido en Inventario (control del día de las proteínas)
     fechaVentas: null,   // día elegido en Ventas
     insumos: null
   };
@@ -35,26 +34,29 @@
   const sinVacios = (lista) => lista.filter(Boolean);
 
   const nf = new Intl.NumberFormat('es-PE', { maximumFractionDigits: 2 });
-  const UNIDAD_CORTA = { 'porción': 'porc.', porcion: 'porc.', unidad: 'u.', g: 'g', ml: 'ml' };
-  const UNIDAD_LARGA = {
-    'porción': ['porción', 'porciones'], porcion: ['porción', 'porciones'],
-    unidad: ['unidad', 'unidades'], g: ['gramo', 'gramos'], ml: ['mililitro', 'mililitros']
-  };
+  // Las unidades las nombra el admin (unidad, porción, jarra, pan…). Estas dos se abrevian.
+  const UNIDAD_CORTA = { 'porción': 'porc.', unidad: 'u.' };
 
-  // Número y unidad para mostrar; pasa a kg o l cuando el número es grande.
+  // "jarra" → "jarras", "porción" → "porciones", "pan" → "panes". Los gramos no cambian.
+  function unidadPlural(u) {
+    if (!u || u === 'g' || u === 'kg') return u || '';
+    if (/ón$/.test(u)) return u.slice(0, -2) + 'ones';
+    if (/[aeiouáéíóú]$/.test(u)) return u + 's';
+    return u + 'es';
+  }
+
+  // Número y unidad para mostrar; los gramos pasan a kg cuando el número es grande.
   function cantidad(n, unidad) {
     let valor = Number(n) || 0;
-    let u = UNIDAD_CORTA[unidad] || unidad || '';
-    if (unidad === 'g' && Math.abs(valor) >= 1000) { valor /= 1000; u = 'kg'; }
-    if (unidad === 'ml' && Math.abs(valor) >= 1000) { valor /= 1000; u = 'l'; }
+    let u = unidad || '';
+    if (u === 'g' && Math.abs(valor) >= 1000) { valor /= 1000; u = 'kg'; }
+    else if (UNIDAD_CORTA[u]) u = UNIDAD_CORTA[u];
+    else if (Math.abs(valor) !== 1) u = unidadPlural(u);
     return { num: nf.format(valor), unidad: u };
   }
   function cantidadTexto(n, unidad) {
     const c = cantidad(n, unidad);
     return `${c.num} ${c.unidad}`;
-  }
-  function unidadPlural(unidad) {
-    return (UNIDAD_LARGA[unidad] || [unidad, unidad])[1];
   }
 
   // "12", "12.5" o "12,5" → número; vacío → null; texto inválido → NaN.
@@ -230,25 +232,29 @@
     ];
   }
 
-  // ---------- casillas: formas de medir, grupos y buscador ----------
+  // ---------- productos: formas de medir, grupos y buscador ----------
 
-  // conteo: porciones o unidades, con stock · nivel: salsas (Lleno · Medio · Poco · Vacío) · marcar: Hay / Falta.
-  const esConteo = (i) => i.medicion === 'conteo';
-  const NIVELES = [['lleno', 'Lleno'], ['medio', 'Medio'], ['poco', 'Poco'], ['vacío', 'Vacío']];
-  const MARCAS = [['hay', 'Hay'], ['falta', 'Falta']];
-  const ESTADOS_ALERTA = ['poco', 'vacío', 'falta'];
+  // unidad · gramos · presentacion (lo producido: porción, jarra…) tienen stock.
+  // ojo: salsas, aderezos y verduras que solo se marcan por nivel (Lleno · Medio · Bajo · Vacío).
+  const FORMAS_MEDIR = [['unidad', 'Por unidad'], ['gramos', 'Por gramos'],
+    ['presentacion', 'Por porción o presentación'], ['ojo', 'Al ojo (lleno · medio · bajo · vacío)']];
+  const seCuenta = (i) => i.medicion !== 'ojo';
+  const alOjo = (i) => i.medicion === 'ojo';
+  const NIVELES = [['lleno', 'Lleno'], ['medio', 'Medio'], ['bajo', 'Bajo'], ['vacío', 'Vacío']];
+  const NIVELES_ALERTA = ['bajo', 'vacío'];
   const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-  // Lo que hay de una casilla de conteo, en su unidad (porciones o unidades).
-  const mostrar = (n, item) => cantidad(n, item.unidad_base);
+  // Lo que hay de un producto, en su unidad.
+  const mostrar = (n, item) => cantidad(n, item.unidad);
   function mostrarTexto(n, item) {
     const m = mostrar(n, item);
     return `${m.num} ${m.unidad}`;
   }
-  const unidadDeIngreso = (item) => unidadPlural(item.unidad_base);
+  const unidadDeIngreso = (item) => (item.unidad === 'g' ? 'gramos' : unidadPlural(item.unidad));
 
-  const ORDEN_CATEGORIAS = ['Proteínas', 'Salsas', 'Complementos', 'Panes', 'Verduras', 'Lácteos',
-    'Secos', 'Congelados', 'Bebidas', 'Solo producción'];
+  // En el orden de la cocina; lo que no está aquí va después, en orden alfabético.
+  const ORDEN_CATEGORIAS = ['Panes', 'Carnes y proteínas', 'Salsas y aderezos', 'Verduras', 'Complementos',
+    'Lácteos', 'Secos', 'Congelados', 'Bebidas', 'Solo producción'];
 
   // Agrupa por categoría (en el orden de la cocina) y ordena alfabéticamente dentro de cada grupo.
   function agruparPorCategoria(insumos) {
@@ -262,11 +268,13 @@
 
   const TILDES = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
   const sinTildes = (s) => String(s).toLowerCase().normalize('NFD').replace(TILDES, '');
+  // Se busca por el nombre oficial y por sus alias ("chancho" encuentra la panceta).
+  const textoBusqueda = (item) => sinTildes(`${item.nombre} ${item.alias || ''}`);
 
   // Caja de búsqueda que oculta las filas [data-buscar] que no coinciden y los grupos que quedan vacíos.
   function buscador(contenedor, id) {
     const input = h('input', {
-      type: 'search', class: 'campo', id, placeholder: 'Buscar…', autocomplete: 'off', 'aria-label': 'Buscar casilla',
+      type: 'search', class: 'campo', id, placeholder: 'Buscar…', autocomplete: 'off', 'aria-label': 'Buscar producto',
       oninput: () => {
         const q = sinTildes(input.value.trim());
         contenedor.querySelectorAll('[data-buscar]').forEach((el) => { el.hidden = Boolean(q) && !el.dataset.buscar.includes(q); });
@@ -280,9 +288,9 @@
 
   const MENU = [
     { id: 'inventario', nombre: 'Inventario', etiqueta: 'lo que hay', color: 'mustard', ilustracion: 'inventario', href: '#inventario' },
-    { id: 'recetas', nombre: 'Recetas', etiqueta: 'lo que lleva cada pan', color: 'plum', ilustracion: 'recetas', href: '#recetas' },
-    { id: 'produccion', nombre: 'Producción', etiqueta: 'lo que entra o se compra', color: 'navy', ilustracion: 'produccion', href: '#produccion' },
-    { id: 'ventas', nombre: 'Ventas', etiqueta: 'panes y bebidas que salen', color: 'sand', ilustracion: 'ventas', href: '#ventas' }
+    { id: 'recetas', nombre: 'Recetas', etiqueta: 'lo que lleva cada plato', color: 'plum', ilustracion: 'recetas', href: '#recetas' },
+    { id: 'produccion', nombre: 'Compras', etiqueta: 'lo que entró', color: 'navy', ilustracion: 'produccion', href: '#produccion' },
+    { id: 'ventas', nombre: 'Ventas', etiqueta: 'platos y bebidas que salen', color: 'sand', ilustracion: 'ventas', href: '#ventas' }
   ];
 
   function pildoraMenu(op, tag) {
@@ -293,47 +301,50 @@
       ilustracion(op));
   }
 
-  const bajoMinimo = (i) => esConteo(i) && i.stock_minimo > 0 && i.stock_actual < i.stock_minimo;
-  const negativo = (i) => esConteo(i) && i.stock_actual < 0;
+  const bajoMinimo = (i) => seCuenta(i) && i.stock_minimo > 0 && i.stock_actual < i.stock_minimo;
+  const negativo = (i) => seCuenta(i) && i.stock_actual < 0;
+  const nivelBajo = (i) => alOjo(i) && NIVELES_ALERTA.includes(i.estado_actual);
 
-  // Pastilla de la píldora de Inventario: solo mira las casillas de conteo.
+  // Pendientes de compra: lo que está bajo el mínimo y lo que quedó en Bajo o Vacío.
+  const porComprar = (insumos) => insumos.filter((i) => bajoMinimo(i) || nivelBajo(i));
+
+  // Pastilla de la píldora de Inventario.
   function pendientesInventario(insumos) {
-    const bajos = insumos.filter((i) => bajoMinimo(i) && !negativo(i)).length;
     const revisar = insumos.filter(negativo).length;
-    const n = bajos + revisar;
+    const n = porComprar(insumos).filter((i) => !negativo(i)).length + revisar;
     if (!n) return null;
     return revisar ? `${n} por revisar` : `${n} por comprar`;
   }
 
-  // Bajo el mínimo (conteo), salsas en Poco o Vacío (nivel) y lo que está en Falta (marcar).
-  function porComprar(insumos) {
-    return {
-      bajos: insumos.filter(bajoMinimo).sort(porNombre),
-      salsas: insumos.filter((i) => i.medicion === 'nivel' && ESTADOS_ALERTA.includes(i.estado_actual)).sort(porNombre),
-      faltan: insumos.filter((i) => i.medicion === 'marcar' && i.estado_actual === 'falta').sort(porNombre)
-    };
-  }
-
-  // Botones de estado: Lleno · Medio · Poco · Vacío, o Hay / Falta. Siempre hay uno marcado.
-  function selectorEstado(item, valor, alElegir) {
-    const opciones = item.medicion === 'nivel' ? NIVELES : MARCAS;
-    const botones = opciones.map(([v, texto]) => h('button', {
-      type: 'button', class: 'estado-btn' + (ESTADOS_ALERTA.includes(v) ? ' estado-btn--alerta' : ''),
+  // Botones Lleno · Medio · Bajo · Vacío. Siempre hay uno marcado.
+  function selectorNivel(item, valor, alElegir) {
+    const botones = NIVELES.map(([v, texto]) => h('button', {
+      type: 'button', class: 'estado-btn' + (NIVELES_ALERTA.includes(v) ? ' estado-btn--alerta' : ''),
       'data-valor': v, 'aria-pressed': 'false', onclick: () => alElegir(v)
     }, texto));
     const marcar = (v) => botones.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.valor === v)));
     marcar(valor);
     return {
-      el: h('div', { class: `estados estados--${botones.length}`, role: 'group', 'aria-label': item.nombre }, botones),
+      el: h('div', { class: 'estados', role: 'group', 'aria-label': item.nombre }, botones),
       marcar
     };
   }
 
-  // Fila de una salsa (nombre arriba, 4 botones abajo) o de un ingrediente (nombre y Hay / Falta en la misma línea).
-  function filaConEstado(item, selector, extra) {
-    return h('div', { class: `fila-estado fila-estado--${item.medicion}`, 'data-buscar': sinTildes(item.nombre) },
-      h('div', { class: 'fila-estado-cabeza' }, h('span', { class: 'fila-etiqueta' }, item.nombre), extra),
+  // Producto al ojo: nombre arriba y los 4 botones abajo.
+  function filaNivel(item, selector) {
+    return h('div', { class: 'fila-estado', 'data-buscar': textoBusqueda(item) },
+      h('div', { class: 'fila-estado-cabeza' }, h('span', { class: 'fila-etiqueta' }, item.nombre)),
       selector.el);
+  }
+
+  // Para quien no es admin: el nivel se ve, pero lo marca un admin en el cierre.
+  function filaNivelSoloVer(item) {
+    const alerta = nivelBajo(item);
+    return h('div', { class: 'fila', 'data-buscar': textoBusqueda(item) },
+      h('span', { class: 'fila-etiqueta' }, item.nombre),
+      h('span', { class: 'nivel-texto' + (alerta ? ' nivel-texto--alerta' : '') },
+        alerta && h('span', { class: 'punto', 'aria-hidden': 'true' }),
+        capital(item.estado_actual)));
   }
 
   function grupoInsumos(titulo, hijos, clase) {
@@ -362,18 +373,18 @@
   function pintarAlertas(cont, insumos) {
     const revisar = insumos.filter(negativo).sort(porNombre);
     const pc = porComprar(insumos);
-    const total = pc.bajos.length + pc.salsas.length + pc.faltan.length;
+    const bajos = pc.filter(seCuenta).length;
+    const niveles = pc.length - bajos;
     const detalle = sinVacios([
-      pc.bajos.length && `${pc.bajos.length} bajo el mínimo`,
-      pc.salsas.length && `${pc.salsas.length} ${pc.salsas.length === 1 ? 'salsa' : 'salsas'} por acabarse`,
-      pc.faltan.length && `${pc.faltan.length} ${pc.faltan.length === 1 ? 'falta' : 'faltan'}`
+      bajos && `${bajos} bajo el mínimo`,
+      niveles && `${niveles} en Bajo o Vacío`
     ]).join(' · ');
     const fila = (href, contenido) => h('li', null, h('a', { class: 'alerta-fila', href },
       h('span', { class: 'punto', 'aria-hidden': 'true' }), h('span', null, contenido)));
     const items = [
       ...revisar.map((i) => fila('#produccion', ['Revisar ', h('strong', null, i.nombre),
         `: quedó en ${mostrarTexto(i.stock_actual, i)} · falta anotar lo que entró`])),
-      total && fila('#por-comprar', [h('strong', null, `Por comprar: ${total}`), ` · ${detalle}`])
+      pc.length && fila('#por-comprar', [h('strong', null, `Pendientes de compra: ${pc.length}`), ` · ${detalle}`])
     ].filter(Boolean);
     cont.replaceChildren(items.length
       ? h('section', { class: 'alertas', 'aria-labelledby': 'alertas-titulo' },
@@ -383,21 +394,20 @@
   }
 
   // Se marca al tocar y se guarda por detrás. Si falla, vuelve a lo último que se guardó.
-  function selectorEnVivo(item, alGuardar) {
+  function selectorEnVivo(item) {
     let guardado = item.estado_actual;
     let mostrado = guardado;
     let ultimo = 0;
-    const selector = selectorEstado(item, guardado, async (v) => {
+    const selector = selectorNivel(item, guardado, async (v) => {
       if (v === mostrado) return;
       mostrado = v;
       selector.marcar(v);
       const pedido = ++ultimo;
       try {
-        const r = await Api.cambiarEstado({ insumo_id: item.id, estado: v });
+        const r = await Api.cambiarNivel({ insumo_id: item.id, estado: v });
         if (pedido !== ultimo) return;
         guardado = r.insumo ? r.insumo.estado_actual : v;
         item.estado_actual = guardado;
-        alGuardar();
       } catch (err) {
         if (pedido !== ultimo) return;
         mostrado = guardado;
@@ -408,162 +418,54 @@
     return selector;
   }
 
-  function filaControl(item, c, fecha) {
-    const unidad = cantidad(0, item.unidad_base).unidad;
-    const celda = (etiqueta, n, signo) => h('div', { class: 'control-celda' },
-      h('span', { class: 'control-num' }, (n ? signo : '') + nf.format(n)),
-      h('span', { class: 'control-etiqueta' }, etiqueta));
-    const bajo = c.queda < 0;
-    return h('div', { class: 'control' + (bajo ? ' control--bajo' : ''), 'data-buscar': sinTildes(item.nombre) },
-      h('div', { class: 'control-cabeza' },
-        h('span', { class: 'fila-etiqueta' }, item.nombre,
-          item.gramaje_ref && h('span', { class: 'fila-nota' }, `${item.gramaje_ref} por porción`)),
-        h('span', { class: 'control-queda' },
-          h('span', { class: 'control-queda-num' },
-            bajo && h('span', { class: 'punto', 'aria-hidden': 'true' }),
-            h('strong', null, nf.format(c.queda)),
-            h('span', { class: 'valor-unidad' }, unidad)),
-          h('span', { class: 'control-etiqueta' }, bajo ? 'quedó en negativo' : 'quedan'))),
-      h('div', { class: 'control-cuentas' },
-        celda('inicial', c.inicial, ''),
-        celda('producido', c.producido, '+'),
-        celda('vendido', c.vendido, '−'),
-        celda('merma', c.merma, '−'),
-        c.ajuste !== 0 && celda('ajuste', Math.abs(c.ajuste), c.ajuste < 0 ? '−' : '+')),
-      h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirControl(item, fecha) },
-        'Anotar producido o merma'));
-  }
-
-  function abrirControl(item, fecha) {
-    const fProducido = campoNumero({ etiqueta: 'lo producido', id: 'ctl-producido' });
-    const fMerma = campoNumero({ etiqueta: 'la merma', id: 'ctl-merma' });
-    const btn = h('button', { type: 'submit', class: 'btn btn-primario' }, 'Guardar');
-    async function guardar(e) {
-      e.preventDefault();
-      const producido = fProducido.valor;
-      const merma = fMerma.valor;
-      for (const [v, campo, nombre] of [[producido, fProducido, 'lo producido'], [merma, fMerma, 'la merma']]) {
-        if (v != null && (!Number.isFinite(v) || v < 0)) { aviso(`Revisa ${nombre}: tiene que ser un número.`); campo.input.focus(); return; }
-      }
-      if (!(producido > 0) && !(merma > 0)) { aviso('Escribe lo producido o la merma.'); fProducido.input.focus(); return; }
-      ocupado(btn, 'Guardando…');
-      try {
-        const r = await Api.anotarControl({ fecha, insumo_id: item.id, producido: producido || 0, merma: merma || 0 });
-        Hoja.cerrar();
-        aviso(r.posteriores ? 'Guardado. Corregiste un día pasado: los días siguientes pueden no cuadrar.' : 'Guardado');
-        render();
-      } catch (err) {
-        aviso(mensajeError(err, MSJ_GUARDAR));
-        libre(btn);
-      }
-    }
-    Hoja.abrir(h('form', { class: 'formulario', novalidate: true, onsubmit: guardar },
-      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, item.nombre),
-      h('p', { class: 'texto-suave' }, `${capital(fechaLarga(fecha))}. Se suma a lo que ya se anotó ese día, en ${unidadDeIngreso(item)}.`),
-      h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'ctl-producido' }, 'Producido'), fProducido.el),
-      h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'ctl-merma' }, 'Merma', h('span', { class: 'fila-nota' }, 'lo que se botó o se malogró')), fMerma.el),
-      btn), { foco: fProducido.input });
-  }
-
-  // Glaseado Bravo: un lote nuevo descuenta la chicha y deja la salsa en Lleno.
-  function abrirLote(item, porId) {
-    const destino = porId[item.lote_insumo_id];
-    const cantidadLote = Number(item.lote_cantidad) || 0;
-    const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: confirmar }, 'Confirmar lote');
-    async function confirmar() {
-      ocupado(btn, 'Guardando…');
-      try {
-        const r = await Api.hiceUnLote({ insumo_id: item.id });
-        Hoja.cerrar();
-        aviso(r.descontado
-          ? `Lote anotado: −${cantidadTexto(r.descontado.cantidad, r.descontado.unidad_base)} de ${r.descontado.nombre}`
-          : 'Lote anotado. No se descontó chicha: falta definir cuántas unidades lleva un lote (Ajustes).');
-        render();
-      } catch (err) {
-        aviso(mensajeError(err, MSJ_GUARDAR));
-        libre(btn);
-      }
-    }
-    Hoja.abrir(h('div', { class: 'formulario' }, ...sinVacios([
-      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, `${item.nombre}: nuevo lote`),
-      destino && cantidadLote > 0
-        ? h('p', null, `Se descuenta ${cantidadTexto(cantidadLote, destino.unidad_base)} de ${destino.nombre} `,
-            h('span', { class: 'texto-suave' }, `(hay ${mostrarTexto(destino.stock_actual, destino)})`),
-            ' y el nivel queda en Lleno.')
-        : h('p', { class: 'nota nota--alerta' },
-            'Falta definir cuántas unidades de chicha lleva un lote (Ajustes). Si sigues, solo se pone en Lleno y no se descuenta nada.'),
-      btn
-    ])));
-  }
-
-  // ---------- Por comprar ----------
+  // ---------- Pendientes de compra ----------
 
   function vistaPorComprar(main) {
     const zona = h('div', null, esqueletoFilas(5));
     main.replaceChildren(
       volver('#hoy', 'Hoy'),
-      h('h1', { class: 'titulo' }, 'Por comprar'),
-      h('p', { class: 'texto-suave' }, 'Lo que está bajo el mínimo, las salsas en Poco o Vacío y lo que falta.'),
+      h('h1', { class: 'titulo' }, 'Pendientes de compra'),
+      h('p', { class: 'texto-suave' }, 'Lo que está bajo el mínimo y lo que quedó en Bajo o Vacío.'),
       zona);
     cargarEn(zona, Api.cargarInventario, ({ insumos }) => {
       estado.insumos = insumos;
-      const pc = porComprar(insumos);
-      const grupo = (titulo, items, nota) => items.length && grupoInsumos(titulo, items.map((i) => h('div', { class: 'fila' },
-        h('span', { class: 'fila-etiqueta' }, i.nombre, h('span', { class: 'fila-nota' }, nota(i))))));
-      const grupos = sinVacios([
-        grupo('Bajo el mínimo', pc.bajos, (i) => `quedan ${mostrarTexto(i.stock_actual, i)} · mínimo ${mostrarTexto(i.stock_minimo, i)}`),
-        grupo('Salsas por acabarse', pc.salsas, (i) => `está en ${capital(i.estado_actual)}`),
-        grupo('Falta', pc.faltan, (i) => i.categoria)
-      ]);
+      const nota = (i) => (alOjo(i)
+        ? `está en ${capital(i.estado_actual)}`
+        : `quedan ${mostrarTexto(i.stock_actual, i)} · mínimo ${mostrarTexto(i.stock_minimo, i)}`);
+      const grupos = agruparPorCategoria(porComprar(insumos)).map(({ categoria, items }) =>
+        grupoInsumos(categoria, items.map((i) => h('div', { class: 'fila' },
+          h('span', { class: 'fila-etiqueta' }, i.nombre, h('span', { class: 'fila-nota' }, nota(i)))))));
       zona.replaceChildren(grupos.length ? h('div', { class: 'grupos' }, grupos) : h('p', { class: 'vacio' }, 'No falta nada.'));
     });
   }
 
-  // ---------- Inventario: el día, proteínas, lo que se cuenta, salsas e ingredientes ----------
+  // ---------- Inventario: lo que se cuenta (barras) y lo que va al ojo ----------
 
   function vistaInventario(main) {
-    const hoy = Api.hoyLima();
-    if (!estado.fechaHoy || estado.fechaHoy > hoy || !Api.sesion.esAdmin) estado.fechaHoy = hoy;
-    const fecha = estado.fechaHoy;
     const zona = h('div', { class: 'hoy' }, esqueletoFilas(7));
     main.replaceChildren(
       h('div', { class: 'titulo-fila' },
         h('h1', { class: 'titulo' }, 'Inventario'),
-        h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: abrirNuevaCasilla }, '+ Nueva casilla')),
+        Api.sesion.esAdmin && h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirProducto(null) }, '+ Nuevo producto')),
       zona);
-    cargarEn(zona, () => Api.cargarHoy(fecha), (datos) => pintarInventario(zona, datos));
+    cargarEn(zona, Api.cargarInventario, ({ insumos }) => pintarInventario(zona, insumos));
   }
 
-  function pintarInventario(zona, datos) {
-    estado.insumos = datos.insumos;
-    const insumos = datos.insumos;
+  function pintarInventario(zona, insumos) {
+    estado.insumos = insumos;
     if (!insumos.length) {
-      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay casillas. Crea la primera con “+ Nueva casilla”.'));
+      zona.replaceChildren(h('p', { class: 'vacio' }, Api.sesion.esAdmin
+        ? 'Todavía no hay productos. Crea el primero con “+ Nuevo producto”.' : 'Todavía no hay productos.'));
       return;
     }
-    const porId = {};
-    insumos.forEach((i) => { porId[i.id] = i; });
 
-    // Proteínas: control del día de la fecha elegida.
-    const conControl = {};
-    const control = datos.control
-      .filter((c) => porId[c.insumo_id])
-      .sort((a, b) => porNombre(porId[a.insumo_id], porId[b.insumo_id]))
-      .map((c) => { conControl[c.insumo_id] = true; return filaControl(porId[c.insumo_id], c, datos.fecha); });
+    const barras = graficaConteo(insumos.filter(seCuenta));
 
-    // Lo demás que se cuenta (panes, verduras, papas, bebidas…), en barras.
-    const barras = graficaConteo(insumos.filter((i) => esConteo(i) && !conControl[i.id]));
-
-    // Salsas e ingredientes: muestran siempre el estado actual y se guardan al tocar.
-    const conEstado = (item) => {
-      const extra = item.lote_insumo_id && h('button', {
-        type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirLote(item, porId)
-      }, 'Hice un lote');
-      return filaConEstado(item, selectorEnVivo(item, () => {}), extra);
-    };
-    const salsas = insumos.filter((i) => i.medicion === 'nivel').sort(porNombre).map(conEstado);
-    const ingredientes = agruparPorCategoria(insumos.filter((i) => i.medicion === 'marcar')).map(({ categoria, items }) => {
-      const filas = items.map(conEstado);
+    // Al ojo: el admin lo marca al tocar y se guarda en el momento; cocina solo lo ve.
+    const admin = Api.sesion.esAdmin;
+    const conNivel = (item) => (admin ? filaNivel(item, selectorEnVivo(item)) : filaNivelSoloVer(item));
+    const ojo = agruparPorCategoria(insumos.filter(alOjo)).map(({ categoria, items }) => {
+      const filas = items.map(conNivel);
       if (categoria !== 'Solo producción') return grupoInsumos(categoria, filas);
       // Es la lista más larga y se usa menos: va plegada.
       return h('details', { class: 'grupo plegable' },
@@ -572,22 +474,18 @@
     });
 
     const lista = h('div', { class: 'hoy' }, ...sinVacios([
-      control.length && grupoInsumos('Proteínas', control),
       barras.length && h('section', { class: 'grupos' }, ...barras,
         h('p', { class: 'pequeno texto-suave' }, 'Cada grupo usa su propia escala. La rayita roja marca el mínimo.')),
-      salsas.length && grupoInsumos('Salsas', salsas),
-      ingredientes.length && h('section', { class: 'grupos' },
-        h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Ingredientes'),
-        ...ingredientes)
+      ojo.length && h('section', { class: 'grupos' },
+        h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Al ojo'),
+        !admin && h('p', { class: 'pequeno texto-suave' }, 'Los niveles los marca un admin en el cierre.'),
+        ...ojo)
     ]));
-    zona.replaceChildren(
-      ...selectorFecha(datos.fecha, (f) => { estado.fechaHoy = f; render(); }, !Api.sesion.esAdmin),
-      buscador(lista, 'buscar-inventario'),
-      lista);
+    zona.replaceChildren(buscador(lista, 'buscar-inventario'), lista);
   }
 
-  // Barras horizontales de casillas de conteo, agrupadas por categoría y en orden alfabético.
-  // Cada grupo tiene su propia escala, porque mezclar porciones con unidades no dice nada.
+  // Barras horizontales de lo que se cuenta, agrupadas por categoría y en orden alfabético.
+  // Cada grupo tiene su propia escala, porque mezclar gramos con unidades no dice nada.
   function graficaConteo(insumos) {
     return agruparPorCategoria(insumos).map(({ categoria, items }) => {
       const max = Math.max(1, ...items.map((i) => Math.max(i.stock_actual, i.stock_minimo || 0)));
@@ -597,7 +495,7 @@
         h('ul', { class: 'grafica' }, items.map((i) => {
           const bajo = bajoMinimo(i) || negativo(i);
           const m = mostrar(i.stock_actual, i);
-          return h('li', { class: 'grafica-fila' + (bajo ? ' grafica-fila--bajo' : ''), 'data-buscar': sinTildes(i.nombre) },
+          return h('li', { class: 'grafica-fila' + (bajo ? ' grafica-fila--bajo' : ''), 'data-buscar': textoBusqueda(i) },
             h('span', { class: 'grafica-nombre' }, i.nombre),
             h('span', { class: 'grafica-pista', 'aria-hidden': 'true' },
               h('span', { class: 'grafica-barra', style: `width:${Math.max(0, (i.stock_actual / max) * 100)}%` }),
@@ -612,93 +510,184 @@
     });
   }
 
-  function abrirNuevaCasilla() {
+  // ---------- Productos (solo admin): nombre, alias, categoría, forma de medir, unidad y mínimo ----------
+
+  const pastillaRevisar = () => h('span', { class: 'etiqueta-estado etiqueta-estado--suave' }, 'Por revisar');
+
+  function vistaProductos(main) {
+    const zona = h('div', { class: 'hoy' }, esqueletoFilas(7));
+    main.replaceChildren(
+      volver('#mas', 'Más'),
+      h('div', { class: 'titulo-fila' },
+        h('h1', { class: 'titulo' }, 'Productos'),
+        h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirProducto(null) }, '+ Nuevo producto')),
+      zona);
+    cargarEn(zona, Api.cargarInventario, ({ insumos }) => pintarProductos(zona, insumos));
+  }
+
+  function resumenProducto(i) {
+    return sinVacios([
+      alOjo(i) ? 'al ojo' : i.medicion === 'gramos' ? 'por gramos' : `por ${i.unidad}`,
+      i.stock_minimo > 0 && `mínimo ${mostrarTexto(i.stock_minimo, i)}`,
+      i.alias && `alias: ${i.alias}`,
+      i.nota
+    ]).join(' · ');
+  }
+
+  function pintarProductos(zona, insumos) {
+    estado.insumos = insumos;
+    const porRevisar = insumos.filter((i) => i.revisar).length;
+    const lista = h('div', { class: 'grupos' }, agruparPorCategoria([...insumos]).map(({ categoria, items }) =>
+      h('section', { class: 'grupo', 'data-grupo': '' },
+        h('h2', { class: 'subtitulo' }, categoria),
+        h('div', { class: 'lista' }, items.map((i) =>
+          h('button', { type: 'button', class: 'lista-fila', 'data-buscar': textoBusqueda(i), onclick: () => abrirProducto(i) },
+            h('span', { class: 'lista-texto' },
+              h('strong', null, i.nombre),
+              i.revisar && pastillaRevisar(),
+              h('span', { class: 'pequeno texto-suave' }, resumenProducto(i))),
+            h('span', { html: CHEVRON })))))));
+    zona.replaceChildren(...sinVacios([
+      porRevisar > 0 && h('p', { class: 'nota' }, porRevisar === 1
+        ? 'Queda 1 producto por revisar: ábrelo, corrige lo que haga falta y guarda.'
+        : `Quedan ${porRevisar} productos por revisar: vienen del documento de la dueña. Ábrelos, corrige lo que haga falta y guarda.`),
+      insumos.length ? buscador(lista, 'buscar-productos') : h('p', { class: 'vacio' }, 'Todavía no hay productos.'),
+      lista
+    ]));
+  }
+
+  // Crear (item = null) o editar un producto.
+  function abrirProducto(item) {
+    const nuevo = !item;
+    const p = item || { nombre: '', alias: '', categoria: '', medicion: 'unidad', unidad: '', stock_minimo: 0, nota: '' };
     const categorias = [...new Set([...ORDEN_CATEGORIAS, ...(estado.insumos || []).map((i) => i.categoria)])].filter(Boolean);
-    const nombre = h('input', { class: 'campo', id: 'nc-nombre', autocomplete: 'off', maxlength: 40, enterkeyhint: 'next' });
-    const medicion = h('select', { class: 'campo', id: 'nc-medicion' },
-      h('option', { value: 'conteo' }, 'Se cuenta (porciones o unidades)'),
-      h('option', { value: 'nivel' }, 'Por nivel del pote (Lleno · Medio · Poco · Vacío)'),
-      h('option', { value: 'marcar' }, 'Solo se marca si hay o si falta'));
-    const tipo = h('select', { class: 'campo', id: 'nc-tipo' },
-      h('option', { value: 'ingrediente' }, 'Ingrediente (va en los panes)'),
-      h('option', { value: 'bebida' }, 'Bebida (se vende sola)'));
-    const categoria = h('select', { class: 'campo', id: 'nc-categoria' }, categorias.map((c) => h('option', { value: c }, c)));
-    const unidad = h('select', { class: 'campo', id: 'nc-unidad' },
-      h('option', { value: 'porción' }, 'porciones'),
-      h('option', { value: 'unidad' }, 'unidades'));
-    const gramaje = h('input', { class: 'campo', id: 'nc-gramaje', autocomplete: 'off', maxlength: 40, placeholder: 'por ejemplo, 140 g' });
-    const fStock = campoNumero({ etiqueta: 'cuánto hay', id: 'nc-stock' });
-    const fMinimo = campoNumero({ etiqueta: 'el mínimo', id: 'nc-minimo' });
-    const notaStock = h('span', { class: 'fila-nota' });
+    const input = (id, valor, attrs) => {
+      const el = h('input', { class: 'campo', id, autocomplete: 'off', ...attrs });
+      el.value = valor || '';
+      return el;
+    };
+    const nombre = input('pr-nombre', p.nombre, { maxlength: 40 });
+    const alias = input('pr-alias', p.alias, { maxlength: 120, placeholder: 'por ejemplo, chancho, chicharrón' });
+    const categoria = h('select', { class: 'campo', id: 'pr-categoria' },
+      categorias.map((c) => h('option', { value: c }, c)), h('option', { value: '' }, 'Otra…'));
+    categoria.value = p.categoria || categorias[0];
+    const otraCategoria = input('pr-otra', '', { maxlength: 30 });
+    const medicion = h('select', { class: 'campo', id: 'pr-medicion' }, FORMAS_MEDIR.map(([v, t]) => h('option', { value: v }, t)));
+    medicion.value = p.medicion;
+    const unidad = input('pr-unidad', p.medicion === 'unidad' || p.medicion === 'presentacion' ? p.unidad : '',
+      { maxlength: 20, placeholder: 'unidad, porción, jarra, pan…' });
+    const fMinimo = campoNumero({ valor: p.stock_minimo || null, etiqueta: 'el mínimo', id: 'pr-minimo' });
+    const fStock = campoNumero({ etiqueta: 'cuánto hay', id: 'pr-stock' });
+    const nota = input('pr-nota', p.nota, { maxlength: 80, placeholder: 'por ejemplo, 140 g por porción' });
+    const revisado = h('input', { type: 'checkbox', id: 'pr-revisado', checked: true });
     const notaMinimo = h('span', { class: 'fila-nota' });
+    const notaStock = h('span', { class: 'fila-nota' });
+    const notaCambio = h('p', { class: 'nota' }, 'Cambia la forma de medir: después cuéntalo de nuevo en Ajustes › Contar un producto.');
 
-    const campo = (id, texto, el, nota) => h('div', { class: 'campo-grupo' },
-      h('label', { class: 'etiqueta-campo', for: id }, texto, nota && ` · ${nota}`), el);
-    const grupoTipo = campo('nc-tipo', 'Tipo', tipo);
-    const grupoUnidad = campo('nc-unidad', 'Se cuenta en', unidad);
-    const filaStock = h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'nc-stock' }, 'Cuánto hay ahora', notaStock), fStock.el);
-    const filaMinimo = h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'nc-minimo' }, 'Mínimo', notaMinimo), fMinimo.el);
+    const campo = (id, texto, el, ayuda) => h('div', { class: 'campo-grupo' },
+      h('label', { class: 'etiqueta-campo', for: id }, texto, ayuda && ` · ${ayuda}`), el);
+    const grupoOtra = campo('pr-otra', 'Categoría nueva', otraCategoria);
+    const grupoUnidad = campo('pr-unidad', 'Unidad', unidad, 'en singular');
+    const filaMinimo = h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'pr-minimo' }, 'Mínimo', notaMinimo), fMinimo.el);
+    const filaStock = nuevo && h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'pr-stock' }, 'Cuánto hay ahora', notaStock), fStock.el);
 
-    // Tipo, unidad, cantidad y mínimo solo existen en las casillas que se cuentan.
-    function actualizar(e) {
-      const conteo = medicion.value === 'conteo';
-      if (e && e.target === medicion && medicion.value === 'nivel') categoria.value = 'Salsas';
-      if (!conteo) tipo.value = 'ingrediente';
-      if (tipo.value === 'bebida') { unidad.value = 'unidad'; categoria.value = 'Bebidas'; }
-      [grupoTipo, grupoUnidad, filaStock, filaMinimo].forEach((el) => { el.hidden = !conteo; });
-      const en = 'en ' + unidadPlural(unidad.value);
+    const unidadElegida = () => (medicion.value === 'gramos' ? 'g'
+      : unidad.value.trim().toLowerCase() || (medicion.value === 'presentacion' ? 'porción' : 'unidad'));
+    function actualizar() {
+      const cuenta = medicion.value !== 'ojo';
+      grupoOtra.hidden = categoria.value !== '';
+      grupoUnidad.hidden = !cuenta || medicion.value === 'gramos';
+      filaMinimo.hidden = !cuenta;
+      if (filaStock) filaStock.hidden = !cuenta;
+      notaCambio.hidden = nuevo || !cuenta || (medicion.value === item.medicion && unidadElegida() === item.unidad);
+      const en = `en ${unidadDeIngreso({ unidad: unidadElegida() })}`;
+      notaMinimo.textContent = `${en} · avisa cuando baja de aquí`;
       notaStock.textContent = en;
-      notaMinimo.textContent = en + ' · avisa cuando baja de aquí';
     }
-    [medicion, tipo, unidad].forEach((el) => el.addEventListener('change', actualizar));
+    [categoria, medicion].forEach((el) => el.addEventListener('change', actualizar));
+    unidad.addEventListener('input', actualizar);
     actualizar();
 
-    const btn = h('button', { type: 'submit', class: 'btn btn-primario' }, 'Crear casilla');
-    async function crear(e) {
+    const btn = h('button', { type: 'submit', class: 'btn btn-primario' }, nuevo ? 'Crear producto' : 'Guardar');
+    async function guardar(e) {
       e.preventDefault();
-      const conteo = medicion.value === 'conteo';
-      const stock = !conteo || fStock.valor == null ? 0 : fStock.valor;
-      const minimo = !conteo || fMinimo.valor == null ? 0 : fMinimo.valor;
-      if (!nombre.value.trim()) { aviso('Escribe el nombre de la casilla.'); nombre.focus(); return; }
-      if (!Number.isFinite(stock) || stock < 0) { aviso('Revisa la cantidad: tiene que ser un número.'); fStock.input.focus(); return; }
-      if (!Number.isFinite(minimo) || minimo < 0) { aviso('Revisa el mínimo: tiene que ser un número.'); fMinimo.input.focus(); return; }
-      ocupado(btn, 'Creando…');
+      const cat = categoria.value || otraCategoria.value.trim();
+      if (!nombre.value.trim()) { aviso('Escribe el nombre.'); nombre.focus(); return; }
+      if (!cat) { aviso('Escribe la categoría nueva.'); otraCategoria.focus(); return; }
+      for (const [campoN, texto] of [[fMinimo, 'el mínimo'], [fStock, 'la cantidad']]) {
+        const v = campoN.valor;
+        if (v != null && (!Number.isFinite(v) || v < 0)) { aviso(`Revisa ${texto}: tiene que ser un número.`); campoN.input.focus(); return; }
+      }
+      const datos = {
+        nombre: nombre.value.trim(), alias: alias.value, categoria: cat, medicion: medicion.value,
+        unidad: unidadElegida(), stock_minimo: fMinimo.valor || 0, nota: nota.value.trim()
+      };
+      ocupado(btn, 'Guardando…');
       try {
-        const nuevo = await Api.crearInsumo({
-          nombre: nombre.value.trim(), medicion: medicion.value, tipo: tipo.value, categoria: categoria.value,
-          unidad_base: unidad.value, gramaje_ref: gramaje.value.trim(), stock_actual: stock, stock_minimo: minimo
-        });
-        estado.insumos = [...(estado.insumos || []), nuevo];
+        const r = nuevo
+          ? await Api.crearProducto({ ...datos, stock_actual: fStock.valor || 0 })
+          : await Api.guardarProducto({ ...datos, id: item.id, revisado: item.revisar && revisado.checked });
+        estado.insumos = r.insumos;
         Hoja.cerrar();
         render();
-        aviso(`Casilla creada: ${nuevo.nombre}`);
+        aviso(nuevo ? `Producto creado: ${datos.nombre}` : `Guardado: ${datos.nombre}`);
       } catch (err) {
         aviso(mensajeError(err, MSJ_GUARDAR));
         libre(btn);
       }
     }
 
-    Hoja.abrir(h('form', { class: 'formulario', novalidate: true, onsubmit: crear },
-      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Nueva casilla'),
-      campo('nc-nombre', 'Nombre', nombre),
-      campo('nc-medicion', 'Cómo se mide', medicion),
-      grupoTipo,
-      campo('nc-categoria', 'Categoría', categoria),
+    // Quitar pide un segundo toque. La fila queda en el Sheet, así el historial conserva su nombre.
+    const btnQuitar = !nuevo && h('button', { type: 'button', class: 'btn btn-secundario btn-ancho' }, 'Quitar de la app');
+    if (btnQuitar) {
+      btnQuitar.addEventListener('click', async () => {
+        if (!btnQuitar.dataset.confirmar) {
+          btnQuitar.dataset.confirmar = '1';
+          btnQuitar.textContent = `Toca otra vez para quitar ${item.nombre}`;
+          return;
+        }
+        ocupado(btnQuitar, 'Quitando…');
+        try {
+          const r = await Api.guardarProducto({ id: item.id, desactivar: true });
+          estado.insumos = r.insumos;
+          Hoja.cerrar();
+          render();
+          aviso(`${item.nombre} ya no aparece en la app. Su historial se guarda.`);
+        } catch (err) {
+          aviso(mensajeError(err, MSJ_GUARDAR));
+          libre(btnQuitar);
+        }
+      });
+    }
+
+    Hoja.abrir(h('form', { class: 'formulario', novalidate: true, onsubmit: guardar }, ...sinVacios([
+      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, nuevo ? 'Nuevo producto' : item.nombre),
+      !nuevo && item.revisar && h('p', { class: 'nota' }, 'Viene del documento de la dueña: revisa los datos y guarda.'),
+      !nuevo && seCuenta(item) && h('p', { class: 'texto-suave' }, `Hay ahora: ${mostrarTexto(item.stock_actual, item)}`),
+      campo('pr-nombre', 'Nombre oficial', nombre),
+      campo('pr-alias', 'Alias', alias, 'opcional, separados por coma'),
+      campo('pr-categoria', 'Categoría', categoria),
+      grupoOtra,
+      campo('pr-medicion', 'Cómo se mide', medicion),
+      notaCambio,
       grupoUnidad,
-      campo('nc-gramaje', 'Gramaje de referencia', gramaje, 'opcional, solo se muestra'),
-      filaStock,
       filaMinimo,
-      btn), { foco: nombre });
+      filaStock,
+      campo('pr-nota', 'Nota', nota, 'opcional, solo se muestra'),
+      !nuevo && item.revisar && h('label', { class: 'campo-check', for: 'pr-revisado' }, revisado, 'Marcar como revisado'),
+      btn,
+      btnQuitar
+    ])), { foco: nombre });
   }
 
-  // ---------- Producción: lo que entra o se compra (suma al inventario) ----------
+  // ---------- Compras: lo que entra (suma al inventario) ----------
 
   function vistaProduccion(main) {
     const zona = h('div', null, esqueletoFilas(7));
     main.replaceChildren(
       volver('#hoy', 'Hoy'),
-      h('h1', { class: 'titulo' }, 'Producción'),
-      h('p', { class: 'texto-suave' }, 'Anota lo que entró, se compró o se produjo hoy. Se suma al inventario.'),
+      h('h1', { class: 'titulo' }, 'Compras'),
+      h('p', { class: 'texto-suave' }, 'Anota lo que entró o se compró hoy. Se suma al inventario.'),
       zona);
     cargarEn(zona, Api.cargarInventario, ({ insumos }) => {
       estado.insumos = insumos;
@@ -707,9 +696,9 @@
   }
 
   function pintarProduccion(zona) {
-    const insumos = (estado.insumos || []).filter(esConteo);
+    const insumos = (estado.insumos || []).filter(seCuenta);
     if (!insumos.length) {
-      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay casillas. Créalas en Inventario.'));
+      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay productos que se cuenten.'));
       return;
     }
     const campos = [];
@@ -721,7 +710,7 @@
           const id = `ent-${k++}`;
           const campo = campoNumero({ etiqueta: insumo.nombre, id });
           campos.push({ insumo, campo });
-          return h('div', { class: 'fila', 'data-buscar': sinTildes(insumo.nombre) },
+          return h('div', { class: 'fila', 'data-buscar': textoBusqueda(insumo) },
             h('label', { class: 'fila-etiqueta', for: id }, insumo.nombre,
               h('span', { class: 'fila-nota' }, `hay ${mostrarTexto(insumo.stock_actual, insumo)} · en ${unidadDeIngreso(insumo)}`)),
             campo.el);
@@ -736,14 +725,14 @@
         if (!Number.isFinite(v) || v < 0) { aviso(`Revisa ${insumo.nombre}: tiene que ser un número.`); campo.input.focus(); return; }
         entradas.push({ insumo_id: insumo.id, cantidad: redondear(v) });
       }
-      if (!entradas.length) { aviso('Escribe cuánto entró de al menos una casilla.'); return; }
+      if (!entradas.length) { aviso('Escribe cuánto entró de al menos un producto.'); return; }
       ocupado(btn, 'Guardando…');
       try {
         const r = await Api.registrarEntradas({ entradas });
         estado.insumos = r.insumos;
         pintarProduccion(zona);
         window.scrollTo(0, 0);
-        aviso(r.guardadas === 1 ? 'Guardado: 1 casilla' : `Guardado: ${r.guardadas} casillas`);
+        aviso(r.guardadas === 1 ? 'Guardado: 1 producto' : `Guardado: ${r.guardadas} productos`);
       } catch (err) {
         // No se limpia nada: los números escritos siguen ahí.
         aviso(mensajeError(err, MSJ_GUARDAR));
@@ -754,11 +743,11 @@
     zona.replaceChildren(buscador(lista, 'buscar-produccion'), lista, h('div', { class: 'pie-accion' }, btn));
   }
 
-  // ---------- Ventas: panes y bebidas que salen (descuenta del inventario) ----------
+  // ---------- Ventas: platos y bebidas que salen (descuenta del inventario) ----------
 
-  const GRUPOS_VENTA = [['cultos', 'Cultos'], ['criollos', 'Criollos'], ['papas', 'Papas y combos']];
+  const GRUPOS_VENTA = [['cultos', 'Cultos'], ['criollos', 'Criollos'], ['papas', 'Papas y combos'], ['bebidas', 'Bebidas']];
 
-  // Cultos, Criollos y Papas; lo que no tenga grupo conocido va en "Otros" para que nunca desaparezca.
+  // Cultos, Criollos, Papas y Bebidas; lo que no tenga grupo conocido va en "Otros" para que nunca desaparezca.
   function agruparRecetas(recetas) {
     const conocidos = GRUPOS_VENTA.map(([clave]) => clave);
     return [...GRUPOS_VENTA, ['', 'Otros']]
@@ -771,23 +760,28 @@
       .filter((g) => g.items.length);
   }
 
+  // Lo que la receta descuenta con cada venta (lo que va al ojo solo informa).
+  const conCantidad = (r) => r.ingredientes.filter((ing) => !ing.al_ojo);
+
   function vistaVentas(main) {
     const hoy = Api.hoyLima();
-    if (!estado.fechaVentas || estado.fechaVentas > hoy || !Api.sesion.esAdmin) estado.fechaVentas = hoy;
+    if (!estado.fechaVentas || estado.fechaVentas > hoy) estado.fechaVentas = hoy;
     const fecha = estado.fechaVentas;
     const zona = h('div', null, esqueletoFilas(6));
     main.replaceChildren(
       volver('#hoy', 'Hoy'),
       h('h1', { class: 'titulo' }, 'Ventas'),
-      ...selectorFecha(fecha, (f) => { estado.fechaVentas = f; render(); }, !Api.sesion.esAdmin),
+      ...selectorFecha(fecha, (f) => { estado.fechaVentas = f; render(); }),
       zona);
     cargarEn(zona, () => Api.cargarVentas(fecha), (datos) => pintarVentas(zona, datos));
   }
 
-  function pastillaReceta(r) {
-    if (!r.ingredientes.length) return h('span', { class: 'etiqueta-estado' }, 'Sin receta');
-    if (r.estado === 'provisional') return h('span', { class: 'etiqueta-estado etiqueta-estado--suave' }, 'Provisional');
-    return null;
+  function pastillasReceta(r) {
+    return [
+      !conCantidad(r).length && h('span', { class: 'etiqueta-estado' }, 'Sin receta'),
+      r.estado === 'provisional' && h('span', { class: 'etiqueta-estado etiqueta-estado--suave' }, 'Provisional'),
+      r.revisar && pastillaRevisar()
+    ].filter(Boolean);
   }
 
   function pintarVentas(zona, datos) {
@@ -796,28 +790,18 @@
 
     let k = 0;
     const productos = [];
-    const crear = (tipo, item) => {
-      const v = { tipo, item, sinReceta: tipo === 'receta' && !item.ingredientes.length,
-        campo: campoNumero({ valor: item.vendidos || null, etiqueta: item.nombre, id: `ven-${k++}` }) };
+    const fila = (r) => {
+      const v = { receta: r, campo: campoNumero({ valor: r.vendidos || null, etiqueta: r.nombre, id: `ven-${k++}` }) };
       productos.push(v);
-      return v;
+      return h('div', { class: 'fila' },
+        h('label', { class: 'fila-etiqueta', for: v.campo.input.id }, r.nombre, ...pastillasReceta(r)),
+        v.campo.el);
     };
-    const fila = (v) => h('div', { class: 'fila' },
-      h('label', { class: 'fila-etiqueta', for: v.campo.input.id }, v.item.nombre, v.tipo === 'receta' && pastillaReceta(v.item)),
-      v.campo.el);
-    const grupo = (titulo, items) => items.length && h('section', { class: 'grupo' },
+    const secciones = agruparRecetas(datos.recetas).map(({ titulo, items }) => h('section', { class: 'grupo' },
       h('h2', { class: 'subtitulo' }, titulo),
-      h('div', { class: 'lista-items' }, items.map(fila)));
+      h('div', { class: 'lista-items' }, items.map(fila))));
 
-    const secciones = agruparRecetas(datos.panes).map(({ titulo, items }) =>
-      grupo(titulo, items.map((p) => crear('receta', p))));
-    // Si el backend no marca las bebidas (versión anterior publicada), se toman por su categoría.
-    const listaBebidas = datos.bebidas.length
-      ? datos.bebidas
-      : datos.insumos.filter((i) => esConteo(i) && (i.tipo === 'bebida' || i.categoria === 'Bebidas')).map((i) => ({ ...i, vendidos: 0 }));
-    const bebidas = grupo('Bebidas', [...listaBebidas].sort(porNombre).map((b) => crear('insumo', b)));
-
-    // Lo que se va a descontar de cada casilla con las cantidades escritas.
+    // Lo que se va a descontar de cada producto con las cantidades escritas.
     function calcular() {
       const descuentos = {};
       const sinReceta = [];
@@ -825,16 +809,16 @@
         const n = v.campo.valor;
         if (n == null || n === 0) continue;
         if (!Number.isFinite(n) || n < 0) return { error: v };
-        if (v.tipo === 'insumo') descuentos[v.item.id] = (descuentos[v.item.id] || 0) + n;
-        else if (v.sinReceta) sinReceta.push(v.item.nombre);
-        else v.item.ingredientes.forEach((ing) => { descuentos[ing.insumo_id] = (descuentos[ing.insumo_id] || 0) + ing.cantidad * n; });
+        const ingredientes = conCantidad(v.receta).filter((ing) => insumos[ing.insumo_id] && seCuenta(insumos[ing.insumo_id]));
+        if (!ingredientes.length) sinReceta.push(v.receta.nombre);
+        ingredientes.forEach((ing) => { descuentos[ing.insumo_id] = (descuentos[ing.insumo_id] || 0) + ing.cantidad * n; });
       }
       return { descuentos, sinReceta };
     }
 
     function revisar() {
       const r = calcular();
-      if (r.error) { aviso(`Revisa ${r.error.item.nombre}: tiene que ser un número.`); r.error.campo.input.focus(); return; }
+      if (r.error) { aviso(`Revisa ${r.error.receta.nombre}: tiene que ser un número.`); r.error.campo.input.focus(); return; }
       const ids = Object.keys(r.descuentos);
       if (!ids.length && !r.sinReceta.length && !datos.guardado) { aviso('Escribe cuánto se vendió de al menos un producto.'); return; }
 
@@ -842,16 +826,13 @@
       async function confirmar() {
         const ventas = productos
           .filter((v) => Number.isFinite(v.campo.valor) && v.campo.valor > 0)
-          .map((v) => ({ item_tipo: v.tipo, item_id: v.item.id, cantidad: v.campo.valor }));
+          .map((v) => ({ receta_id: v.receta.id, cantidad: v.campo.valor }));
         ocupado(btnConfirmar, 'Guardando…');
         try {
           const res = await Api.guardarVentas({ fecha: datos.fecha, ventas });
           estado.insumos = res.insumos;
           Hoja.cerrar();
-          aviso(sinVacios([
-            res.sinReceta.length ? `Guardado. Sin receta, no se descontó: ${res.sinReceta.join(', ')}.` : 'Ventas guardadas.',
-            res.posteriores && 'Es un día pasado: los días siguientes pueden no cuadrar.'
-          ]).join(' '));
+          aviso(res.sinReceta.length ? `Guardado. Sin receta, no se descontó: ${res.sinReceta.join(', ')}.` : 'Ventas guardadas.');
           render();
         } catch (err) {
           aviso(mensajeError(err, MSJ_GUARDAR));
@@ -883,25 +864,28 @@
     zona.replaceChildren(...sinVacios([
       datos.guardado && h('p', { class: 'nota' }, 'Este día ya tiene ventas guardadas. Si cambias algo, se reemplaza.'),
       ...secciones,
-      bebidas,
       !productos.length && h('p', { class: 'vacio' }, 'No hay productos. Créalos en Recetas.'),
       h('div', { class: 'pie-accion' }, h('button', { type: 'button', class: 'btn btn-primario', onclick: revisar }, 'Revisar descuento'))
     ]));
   }
 
-  // ---------- Recetas: lo que lleva UN producto vendido ----------
+  // ---------- Recetas: lo que lleva UN plato o UNA bebida vendida ----------
 
   function vistaRecetas(main) {
     const zona = h('div', null, esqueletoFilas(5));
     main.replaceChildren(
       h('div', { class: 'titulo-fila' },
         h('h1', { class: 'titulo' }, 'Recetas'),
-        Api.sesion.esAdmin && h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirNuevoPan(zona) }, '+ Nuevo pan')),
+        Api.sesion.esAdmin && h('button', { type: 'button', class: 'btn btn-secundario btn-chico', onclick: () => abrirNuevaReceta(zona) }, '+ Nueva receta')),
       h('p', { class: 'texto-suave' }, Api.sesion.esAdmin
         ? 'Lo que lleva cada producto. Al registrar una venta, se descuenta esto del inventario.'
         : 'Lo que lleva cada producto. Solo un admin puede cambiarlas.'),
       zona);
     cargarEn(zona, Api.cargarRecetas, (datos) => pintarRecetas(zona, datos));
+  }
+
+  function textoIngrediente(ing, i) {
+    return ing.al_ojo ? `${i.nombre} al ojo` : `${i.nombre} ${cantidadTexto(ing.cantidad, i.unidad)}`;
   }
 
   function pintarRecetas(zona, datos) {
@@ -910,30 +894,34 @@
     const grupos = agruparRecetas(datos.recetas);
     if (!grupos.length) {
       zona.replaceChildren(h('p', { class: 'vacio' }, Api.sesion.esAdmin
-        ? 'Todavía no hay recetas. Crea la primera con “+ Nuevo pan”.' : 'Todavía no hay recetas.'));
+        ? 'Todavía no hay recetas. Crea la primera con “+ Nueva receta”.' : 'Todavía no hay recetas.'));
       return;
     }
     const admin = Api.sesion.esAdmin;
-    zona.replaceChildren(...grupos.map(({ titulo, items: recetas }) => {
-      return h('section', { class: 'grupo' },
+    const porRevisar = datos.recetas.filter((r) => r.revisar).length;
+    zona.replaceChildren(...sinVacios([
+      admin && porRevisar > 0 && h('p', { class: 'nota' }, porRevisar === 1
+        ? 'Queda 1 receta por revisar: ábrela, corrige lo que haga falta y guarda.'
+        : `Quedan ${porRevisar} recetas por revisar: vienen del documento de la dueña. Ábrelas, corrige lo que haga falta y guarda.`),
+      ...grupos.map(({ titulo, items: recetas }) => h('section', { class: 'grupo' },
         h('h2', { class: 'subtitulo' }, titulo),
         h('div', { class: 'lista' }, recetas.map((r) => {
           const resumen = r.ingredientes
-            .map((ing) => insumos[ing.insumo_id] && `${insumos[ing.insumo_id].nombre} ${cantidadTexto(ing.cantidad, insumos[ing.insumo_id].unidad_base)}`)
+            .map((ing) => insumos[ing.insumo_id] && textoIngrediente(ing, insumos[ing.insumo_id]))
             .filter(Boolean).join(' · ');
           const texto = h('span', { class: 'lista-texto' },
             h('strong', null, r.nombre),
-            pastillaReceta(r),
+            ...pastillasReceta(r),
             resumen && h('span', { class: 'pequeno texto-suave' }, resumen));
           // Cocina solo las ve; editarlas es de admin.
           if (!admin) return h('div', { class: 'lista-fila' }, texto);
           return h('button', { type: 'button', class: 'lista-fila', onclick: () => abrirReceta(r, datos, zona) },
             texto, h('span', { html: CHEVRON }));
-        })));
-    }));
+        }))))
+    ]));
   }
 
-  function abrirNuevoPan(zona) {
+  function abrirNuevaReceta(zona) {
     const nombre = h('input', { class: 'campo', id: 'np-nombre', autocomplete: 'off', maxlength: 40, enterkeyhint: 'done' });
     const grupo = h('select', { class: 'campo', id: 'np-grupo' }, GRUPOS_VENTA.map(([v, t]) => h('option', { value: v }, t)));
     const btn = h('button', { type: 'submit', class: 'btn btn-primario' }, 'Crear');
@@ -951,46 +939,55 @@
       }
     }
     Hoja.abrir(h('form', { class: 'formulario', novalidate: true, onsubmit: crear },
-      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Nuevo producto'),
-      h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: 'np-nombre' }, 'Nombre'), nombre),
+      h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Nueva receta'),
+      h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: 'np-nombre' }, 'Nombre del plato o bebida'), nombre),
       h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: 'np-grupo' }, 'Grupo'), grupo),
       btn), { foco: nombre });
   }
 
   function abrirReceta(receta, datos, zona) {
-    // Solo lo que se cuenta (incluye bebidas: un combo puede llevar una). Salsas e ingredientes no se descuentan.
-    const insumos = datos.insumos.filter(esConteo);
+    const insumos = datos.insumos;
     const grupos = agruparPorCategoria([...insumos]);
     const lista = h('div', { class: 'lista-items' });
     const filas = [];
     let contador = 0;
 
-    // Las cantidades se escriben en la unidad de la casilla (porciones o unidades); acepta medias (0.5 palta).
+    // Cada ingrediente lleva una cantidad en la unidad del producto (acepta medias: 0.5 palta) o va "al ojo":
+    // al ojo solo informa y no se descuenta. Lo que se mide al ojo va siempre así.
     function agregar(ing) {
       const k = contador++;
       const select = h('select', { class: 'campo', id: `ing-${k}`, 'aria-label': 'Ingrediente' },
         h('option', { value: '' }, 'Elige un ingrediente…'),
         grupos.map(({ categoria, items }) => h('optgroup', { label: categoria }, items.map((i) => h('option', { value: i.id }, i.nombre)))));
       select.value = ing ? ing.insumo_id : '';
-      const campo = campoNumero({ valor: ing ? ing.cantidad : null, etiqueta: 'la cantidad', id: `ing-c-${k}`, paso: 0.5 });
+      const campo = campoNumero({ valor: ing && !ing.al_ojo ? ing.cantidad : null, etiqueta: 'la cantidad', id: `ing-c-${k}`, paso: 0.5 });
       const unidad = h('label', { class: 'fila-nota', for: `ing-c-${k}` });
-      const pintarUnidad = () => {
+      const ojo = h('input', { type: 'checkbox', id: `ing-o-${k}`, checked: Boolean(ing && ing.al_ojo) });
+      const marcaOjo = h('label', { class: 'campo-check', for: `ing-o-${k}` }, ojo, 'Al ojo (no se descuenta)');
+      const cantidadEl = h('div', { class: 'ing-cantidad' }, campo.el, unidad);
+      const pintar = () => {
         const i = insumos.find((x) => x.id === select.value);
-        if (!i) { unidad.textContent = ''; return; }
-        const base = unidadPlural(i.unidad_base) + ' por cada uno';
-        unidad.textContent = i.gramaje_ref ? `${base} · ${i.gramaje_ref}` : base;
+        const soloOjo = Boolean(i && alOjo(i));
+        if (soloOjo) ojo.checked = true;
+        ojo.disabled = soloOjo;
+        cantidadEl.hidden = ojo.checked;
+        if (!i || !seCuenta(i)) { unidad.textContent = ''; return; }
+        const base = `${unidadDeIngreso(i)} por cada uno`;
+        unidad.textContent = i.nota ? `${base} · ${i.nota}` : base;
       };
-      select.addEventListener('change', pintarUnidad);
-      pintarUnidad();
-      const fila = { select, campo };
+      select.addEventListener('change', pintar);
+      ojo.addEventListener('change', pintar);
+      pintar();
+      const fila = { select, campo, ojo };
       const bloque = h('div', { class: 'ing-bloque' },
         select,
         h('div', { class: 'ing-fila' },
-          h('div', { class: 'ing-cantidad' }, campo.el, unidad),
+          cantidadEl,
           h('button', {
             type: 'button', class: 'btn btn-secundario btn-chico', 'aria-label': 'Quitar ingrediente',
             onclick: () => { filas.splice(filas.indexOf(fila), 1); bloque.remove(); }
-          }, 'Quitar')));
+          }, 'Quitar')),
+        marcaOjo);
       filas.push(fila);
       lista.append(bloque);
       return select;
@@ -998,17 +995,19 @@
 
     receta.ingredientes.forEach((ing) => agregar(ing));
 
+    const revisado = h('input', { type: 'checkbox', id: 'rec-revisado', checked: true });
     const btnGuardar = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar receta');
     async function guardar() {
       const ingredientes = [];
-      for (const { select, campo } of filas) {
+      for (const { select, campo, ojo } of filas) {
         if (!select.value) { aviso('Elige el ingrediente o quita esa fila.'); select.focus(); return; }
-        if (!(campo.valor > 0)) { aviso('Cada ingrediente necesita una cantidad mayor que 0.'); campo.input.focus(); return; }
+        if (ojo.checked) { ingredientes.push({ insumo_id: select.value, al_ojo: true }); continue; }
+        if (!(campo.valor > 0)) { aviso('Cada ingrediente necesita una cantidad mayor que 0 o ir al ojo.'); campo.input.focus(); return; }
         ingredientes.push({ insumo_id: select.value, cantidad: campo.valor });
       }
       ocupado(btnGuardar, 'Guardando…');
       try {
-        const nuevos = await Api.guardarReceta({ id: receta.id, ingredientes });
+        const nuevos = await Api.guardarReceta({ id: receta.id, ingredientes, revisado: receta.revisar && revisado.checked });
         Hoja.cerrar();
         if (zona.isConnected) pintarRecetas(zona, nuevos);
         aviso(`Receta guardada: ${receta.nombre}`);
@@ -1020,10 +1019,12 @@
 
     Hoja.abrir(h('div', { class: 'formulario' }, ...sinVacios([
       h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, receta.nombre),
+      receta.revisar && h('p', { class: 'nota' }, 'Viene del documento de la dueña: revisa los ingredientes y guarda.'),
       receta.estado === 'provisional' && h('p', { class: 'nota' }, 'Receta provisional: descuenta normal, pero falta confirmarla con cocina.'),
       h('p', { class: 'texto-suave' }, 'Lo que lleva uno. Se descuenta del inventario por cada uno vendido.'),
-      insumos.length ? lista : h('p', { class: 'vacio' }, 'Primero crea los ingredientes en Inventario.'),
+      insumos.length ? lista : h('p', { class: 'vacio' }, 'Primero crea los productos en Más › Productos.'),
       insumos.length && h('button', { type: 'button', class: 'btn btn-secundario btn-ancho', onclick: () => agregar(null).focus() }, '+ Agregar ingrediente'),
+      receta.revisar && h('label', { class: 'campo-check', for: 'rec-revisado' }, revisado, 'Marcar como revisada'),
       btnGuardar
     ])));
   }
@@ -1040,9 +1041,10 @@
     main.replaceChildren(
       h('h1', { class: 'titulo' }, 'Más'),
       h('nav', { class: 'lista', 'aria-label': 'Más opciones' }, ...sinVacios([
+        Api.sesion.esAdmin && filaLista('#mas/productos', 'Productos', 'Nombre, alias, categoría, forma de medir y mínimo'),
         Api.sesion.esAdmin && filaLista('#mas/revision', 'Revisión inicial', 'Marca cómo está todo y anota lo que hay, de una vez'),
-        filaLista('#mas/movimientos', 'Movimientos', 'Historial de entradas, ventas, ajustes, niveles y marcas'),
-        Api.sesion.esAdmin && filaLista('#mas/ajustes', 'Ajustes', 'Mínimos, contar una casilla, lotes y forma de medir')])),
+        filaLista('#mas/movimientos', 'Movimientos', 'Historial de compras, ventas, conteos y niveles'),
+        Api.sesion.esAdmin && filaLista('#mas/ajustes', 'Ajustes', 'Contar un producto y mínimos')])),
       h('div', { class: 'lista' },
         h('button', {
           type: 'button', class: 'lista-fila',
@@ -1057,15 +1059,15 @@
             h('span', { class: 'pequeno texto-suave' }, `Registrando como ${Api.sesion.usuario} · ${Api.sesion.rol}`)))));
   }
 
-  // Si alguien sin rol admin abre a mano #mas/ajustes o #mas/revision. El servidor igual lo rechazaría.
+  // Si alguien sin rol admin abre a mano una sección de admin. El servidor igual lo rechazaría.
   function vistaSoloAdmin(main) {
     main.replaceChildren(
-      volver('#mas', 'Más'),
+      volver('#hoy', 'Hoy'),
       h('h1', { class: 'titulo' }, 'Solo admin'),
-      h('p', { class: 'vacio' }, 'Esta sección la puede abrir solo un admin.'));
+      h('p', { class: 'vacio' }, 'Esto lo hace un admin.'));
   }
 
-  // Selector de casilla agrupado por categoría.
+  // Selector de producto agrupado por categoría.
   function selectCasilla(id, insumos, vacioTexto) {
     return h('select', { class: 'campo', id },
       h('option', { value: '' }, vacioTexto),
@@ -1076,11 +1078,12 @@
 
   // ---------- Movimientos: historial ----------
 
-  const TIPOS_MOV = [['entrada', 'Entrada'], ['venta', 'Venta'], ['merma', 'Merma'], ['salida', 'Salida'],
-    ['ajuste', 'Ajuste'], ['nivel', 'Nivel'], ['marca', 'Marca']];
+  const TIPOS_MOV = [['compra', 'Compra'], ['produccion_usado', 'Usado en producción'], ['produccion_salida', 'Producido'],
+    ['venta', 'Venta'], ['salida_habemus', 'Salida a Habemus'], ['merma', 'Merma'], ['ajuste_conteo', 'Ajuste de conteo'],
+    ['nivel', 'Nivel']];
   const filtroMov = { fecha: null, insumo_id: '', tipo: '', todo: false };
 
-  // Un día a la vez (solo se leen las filas de ese día) o todo el historial de una casilla.
+  // Un día a la vez (solo se leen las filas de ese día) o todo el historial de un producto.
   function vistaMovimientos(main) {
     const hoy = Api.hoyLima();
     if (!filtroMov.fecha || filtroMov.fecha > hoy) filtroMov.fecha = hoy;
@@ -1097,7 +1100,7 @@
   }
 
   function pintarMovimientos(zona, datos) {
-    const casilla = selectCasilla('mov-casilla', datos.insumos, 'Todas las casillas');
+    const casilla = selectCasilla('mov-casilla', datos.insumos, 'Todos los productos');
     casilla.value = filtroMov.insumo_id;
     const tipo = h('select', { class: 'campo', id: 'mov-tipo' },
       h('option', { value: '' }, 'Todos los tipos'), TIPOS_MOV.map(([v, t]) => h('option', { value: v }, t)));
@@ -1109,8 +1112,8 @@
     }, filtroMov.todo ? 'Ver un solo día' : 'Ver todo su historial');
 
     const valor = (m) => {
-      if (m.tipo === 'nivel' || m.tipo === 'marca') return capital(String(m.nota || ''));
-      const c = cantidad(Math.abs(m.cantidad), m.unidad_base);
+      if (m.tipo === 'nivel') return capital(String(m.nota || ''));
+      const c = cantidad(Math.abs(m.cantidad), m.unidad);
       return `${m.cantidad < 0 ? '−' : '+'}${c.num} ${c.unidad}`;
     };
     const fila = (m) => {
@@ -1119,7 +1122,8 @@
         m.hora,
         m.usuario,
         (TIPOS_MOV.find(([v]) => v === m.tipo) || [m.tipo, m.tipo])[1],
-        m.tipo !== 'nivel' && m.tipo !== 'marca' && m.nota
+        m.precio !== '' && m.precio != null && `S/ ${nf.format(m.precio)}`,
+        m.tipo !== 'nivel' && m.nota
       ]).join(' · ');
       return h('div', { class: 'fila' },
         h('span', { class: 'fila-etiqueta' }, m.nombre, h('span', { class: 'fila-nota' }, detalle)),
@@ -1142,7 +1146,7 @@
       ]));
     }
     casilla.addEventListener('change', () => {
-      // En "todo su historial" la lista viene del servidor para esa casilla: hay que volver a pedirla.
+      // En "todo su historial" la lista viene del servidor para ese producto: hay que volver a pedirla.
       if (filtroMov.todo) { filtroMov.insumo_id = casilla.value; render(); return; }
       pintar();
     });
@@ -1150,7 +1154,7 @@
     pintar();
 
     zona.replaceChildren(h('div', { class: 'formulario' },
-      campoConEtiqueta('mov-casilla', 'Casilla', casilla),
+      campoConEtiqueta('mov-casilla', 'Producto', casilla),
       campoConEtiqueta('mov-tipo', 'Tipo', tipo),
       historial,
       lista));
@@ -1181,7 +1185,7 @@
   }
 
   function pintarAjustes(zona, insumos) {
-    const conteo = insumos.filter(esConteo);
+    const cuentan = insumos.filter(seCuenta);
     const porId = {};
     insumos.forEach((i) => { porId[i.id] = i; });
     const bloque = (titulo, ayuda, ...hijos) => h('section', { class: 'formulario bloque-ajuste' },
@@ -1189,32 +1193,32 @@
       ayuda && h('p', { class: 'texto-suave' }, ayuda),
       ...hijos);
 
-    // Contar una casilla: ajuste de stock contado.
-    const selConteo = selectCasilla('aj-casilla', conteo, 'Elige una casilla…');
+    // Contar un producto: entra la diferencia como ajuste de conteo.
+    const selConteo = selectCasilla('aj-casilla', cuentan, 'Elige un producto…');
     const notaConteo = h('p', { class: 'pequeno texto-suave' });
     const fContado = campoNumero({ etiqueta: 'lo contado', id: 'aj-contado' });
-    const motivo = h('input', { class: 'campo', id: 'aj-motivo', autocomplete: 'off', maxlength: 200, placeholder: 'por ejemplo, conteo del cierre' });
+    const motivo = h('input', { class: 'campo', id: 'aj-motivo', autocomplete: 'off', maxlength: 200, placeholder: 'por ejemplo, conteo después del cierre' });
     const pintarConteo = () => {
       const i = porId[selConteo.value];
       notaConteo.textContent = i ? `El sistema dice ${mostrarTexto(i.stock_actual, i)} · escribe lo que hay de verdad, en ${unidadDeIngreso(i)}.` : '';
     };
     selConteo.addEventListener('change', pintarConteo);
-    const btnConteo = h('button', { type: 'button', class: 'btn btn-primario' }, 'Guardar ajuste');
+    const btnConteo = h('button', { type: 'button', class: 'btn btn-primario' }, 'Guardar conteo');
     btnConteo.addEventListener('click', () => {
       const i = porId[selConteo.value];
       const v = fContado.valor;
-      if (!i) { aviso('Elige la casilla que contaste.'); selConteo.focus(); return; }
+      if (!i) { aviso('Elige el producto que contaste.'); selConteo.focus(); return; }
       if (v == null || !Number.isFinite(v) || v < 0) { aviso('Escribe lo que contaste.'); fContado.input.focus(); return; }
       guardarAjuste(btnConteo, () => Api.ajustarStock({ insumo_id: i.id, cantidad: v, nota: motivo.value.trim() }), (r) =>
         r.diferencia
-          ? `${i.nombre}: ${r.diferencia > 0 ? '+' : '−'}${cantidadTexto(Math.abs(r.diferencia), i.unidad_base)}`
+          ? `${i.nombre}: ${r.diferencia > 0 ? '+' : '−'}${cantidadTexto(Math.abs(r.diferencia), i.unidad)}`
           : `${i.nombre}: ya estaba en ${mostrarTexto(v, i)}`);
     });
 
     // Mínimos: solo se mandan los que cambiaron.
     const camposMinimo = [];
     let k = 0;
-    const minimos = agruparPorCategoria(conteo).map(({ categoria, items }) => grupoInsumos(categoria, items.map((i) => {
+    const minimos = agruparPorCategoria(cuentan).map(({ categoria, items }) => grupoInsumos(categoria, items.map((i) => {
       const id = `aj-min-${k++}`;
       const campo = campoNumero({ valor: i.stock_minimo || null, etiqueta: `el mínimo de ${i.nombre}`, id });
       camposMinimo.push({ i, campo });
@@ -1236,66 +1240,13 @@
         r.guardados === 1 ? 'Mínimo guardado' : `${r.guardados} mínimos guardados`);
     });
 
-    // Lotes (Glaseado Bravo → chicha).
-    const lotes = insumos.filter((i) => i.lote_insumo_id && porId[i.lote_insumo_id]).sort(porNombre).map((i) => {
-      const destino = porId[i.lote_insumo_id];
-      const id = `aj-lote-${i.id}`;
-      const campo = campoNumero({ valor: i.lote_cantidad || null, etiqueta: `las unidades de ${destino.nombre} por lote`, id });
-      const btn = h('button', { type: 'button', class: 'btn btn-secundario btn-ancho' }, `Guardar lote de ${i.nombre}`);
-      btn.addEventListener('click', () => {
-        const v = campo.valor;
-        if (v != null && (!Number.isFinite(v) || v < 0)) { aviso('Revisa las unidades: tiene que ser un número.'); campo.input.focus(); return; }
-        guardarAjuste(btn, () => Api.guardarLote({ insumo_id: i.id, lote_cantidad: v || 0 }), () =>
-          v > 0 ? `Cada lote de ${i.nombre} descuenta ${cantidadTexto(v, destino.unidad_base)} de ${destino.nombre}` : `${i.nombre}: el lote no descuenta nada`);
-      });
-      return h('div', { class: 'formulario' },
-        h('div', { class: 'fila' },
-          h('label', { class: 'fila-etiqueta', for: id }, `${i.nombre}: ${destino.nombre} por lote`,
-            h('span', { class: 'fila-nota' }, `en ${unidadDeIngreso(destino)} · vacío = no descuenta`)),
-          campo.el),
-        btn);
-    });
-
-    // Forma de medir.
-    const FORMAS = [['conteo|porción', 'Se cuenta en porciones'], ['conteo|unidad', 'Se cuenta en unidades'],
-      ['nivel|', 'Por nivel del pote (salsas)'], ['marcar|', 'Solo hay o falta']];
-    const formaDe = (i) => `${i.medicion}|${i.medicion === 'conteo' ? i.unidad_base : ''}`;
-    const selMedir = selectCasilla('aj-medir', insumos, 'Elige una casilla…');
-    const forma = h('select', { class: 'campo', id: 'aj-forma' }, FORMAS.map(([v, t]) => h('option', { value: v }, t)));
-    const notaForma = h('p', { class: 'pequeno texto-suave' });
-    const pintarForma = () => {
-      const i = porId[selMedir.value];
-      forma.disabled = !i;
-      if (i) forma.value = formaDe(i);
-      notaForma.textContent = i ? `Ahora: ${(FORMAS.find(([v]) => v === formaDe(i)) || ['', i.medicion])[1].toLowerCase()}.` : '';
-    };
-    selMedir.addEventListener('change', pintarForma);
-    pintarForma();
-    const btnForma = h('button', { type: 'button', class: 'btn btn-primario' }, 'Cambiar forma de medir');
-    btnForma.addEventListener('click', () => {
-      const i = porId[selMedir.value];
-      if (!i) { aviso('Elige la casilla.'); selMedir.focus(); return; }
-      if (forma.value === formaDe(i)) { aviso('Ya se mide así.'); return; }
-      const [medicion, unidad] = forma.value.split('|');
-      guardarAjuste(btnForma, () => Api.cambiarMedicion({ insumo_id: i.id, medicion, unidad_base: unidad }), () =>
-        medicion === 'conteo' && i.medicion !== 'conteo'
-          ? `${i.nombre} ahora se cuenta. Anota cuánto hay en "Contar una casilla".`
-          : `${i.nombre}: forma de medir cambiada`);
-    });
-
-    zona.replaceChildren(h('div', { class: 'grupos' }, ...sinVacios([
-      bloque('Contar una casilla', 'Si lo que hay no coincide con el sistema, escribe lo contado: entra la diferencia como ajuste.',
-        campoConEtiqueta('aj-casilla', 'Casilla', selConteo), notaConteo,
+    zona.replaceChildren(h('div', { class: 'grupos' },
+      bloque('Contar un producto', 'Solo al inicio del día o después del cierre. Si no coincide con el sistema, entra la diferencia como ajuste.',
+        campoConEtiqueta('aj-casilla', 'Producto', selConteo), notaConteo,
         h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'aj-contado' }, 'Hay contado'), fContado.el),
         campoConEtiqueta('aj-motivo', 'Motivo (opcional)', motivo),
         btnConteo),
-      bloque('Mínimos', 'Avisa cuando algo baja de aquí. Vacío = sin mínimo.', ...minimos, btnMinimos),
-      lotes.length && bloque('Lotes', 'Lo que se descuenta al tocar “Hice un lote”.', ...lotes),
-      bloque('Forma de medir', 'Lo que va en una receta, se vende o se descuenta con un lote tiene que seguir contándose.',
-        campoConEtiqueta('aj-medir', 'Casilla', selMedir), notaForma,
-        campoConEtiqueta('aj-forma', 'Se mide', forma),
-        btnForma)
-    ])));
+      bloque('Mínimos', 'Lo que baja de aquí pasa a Pendientes de compra. Vacío = sin mínimo.', ...minimos, btnMinimos)));
   }
 
   // ---------- Revisión inicial: todo en una sola lista ----------
@@ -1305,7 +1256,7 @@
     main.replaceChildren(
       volver('#mas', 'Más'),
       h('h1', { class: 'titulo' }, 'Revisión inicial'),
-      h('p', { class: 'texto-suave' }, 'Marca cómo están de verdad las salsas y los ingredientes, y escribe lo que hay de lo que se cuenta. Lo que dejes vacío no cambia.'),
+      h('p', { class: 'texto-suave' }, 'Escribe lo que hay de lo que se cuenta y marca el nivel de lo que va al ojo. Lo que dejes vacío no cambia.'),
       zona);
     cargarEn(zona, Api.cargarInventario, ({ insumos }) => {
       estado.insumos = insumos;
@@ -1314,14 +1265,14 @@
   }
 
   function pintarRevision(zona, insumos) {
-    const elegidos = new Map(); // insumo_id → estado nuevo (solo los que cambian)
-    const conEstado = (item) => {
-      const selector = selectorEstado(item, item.estado_actual, (v) => {
+    const elegidos = new Map(); // insumo_id → nivel nuevo (solo los que cambian)
+    const conNivel = (item) => {
+      const selector = selectorNivel(item, item.estado_actual, (v) => {
         selector.marcar(v);
         if (v === item.estado_actual) elegidos.delete(item.id);
         else elegidos.set(item.id, v);
       });
-      return filaConEstado(item, selector);
+      return filaNivel(item, selector);
     };
     const campos = [];
     let k = 0;
@@ -1329,20 +1280,19 @@
       const id = `rev-${k++}`;
       const campo = campoNumero({ etiqueta: item.nombre, id });
       campos.push({ item, campo });
-      return h('div', { class: 'fila', 'data-buscar': sinTildes(item.nombre) },
+      return h('div', { class: 'fila', 'data-buscar': textoBusqueda(item) },
         h('label', { class: 'fila-etiqueta', for: id }, item.nombre,
           h('span', { class: 'fila-nota' }, `ahora ${mostrarTexto(item.stock_actual, item)} · en ${unidadDeIngreso(item)}`)),
         campo.el);
     };
 
-    const salsas = insumos.filter((i) => i.medicion === 'nivel').sort(porNombre);
-    const marcar = agruparPorCategoria(insumos.filter((i) => i.medicion === 'marcar'));
-    const conteo = agruparPorCategoria(insumos.filter(esConteo));
+    const cuentan = agruparPorCategoria(insumos.filter(seCuenta));
+    const ojo = agruparPorCategoria(insumos.filter(alOjo));
     const lista = h('div', { class: 'grupos' }, ...sinVacios([
-      salsas.length && grupoInsumos('Salsas', salsas.map(conEstado)),
-      ...marcar.map(({ categoria, items }) => grupoInsumos(categoria, items.map(conEstado))),
-      conteo.length && h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Cuánto hay'),
-      ...conteo.map(({ categoria, items }) => grupoInsumos(categoria, items.map(conCantidad)))
+      cuentan.length && h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Cuánto hay'),
+      ...cuentan.map(({ categoria, items }) => grupoInsumos(categoria, items.map(conCantidad))),
+      ojo.length && h('h2', { class: 'subtitulo subtitulo--seccion' }, 'Al ojo'),
+      ...ojo.map(({ categoria, items }) => grupoInsumos(categoria, items.map(conNivel)))
     ]));
 
     const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar revisión');
@@ -1354,13 +1304,13 @@
         if (!Number.isFinite(v) || v < 0) { aviso(`Revisa ${item.nombre}: tiene que ser un número.`); campo.input.focus(); return; }
         conteos.push({ insumo_id: item.id, cantidad: redondear(v) });
       }
-      const estados = [...elegidos].map(([insumo_id, v]) => ({ insumo_id, estado: v }));
-      if (!conteos.length && !estados.length) { aviso('No cambiaste nada.'); return; }
+      const niveles = [...elegidos].map(([insumo_id, v]) => ({ insumo_id, estado: v }));
+      if (!conteos.length && !niveles.length) { aviso('No cambiaste nada.'); return; }
       ocupado(btn, 'Guardando…');
       try {
-        const r = await Api.guardarRevision({ conteos, estados });
+        const r = await Api.guardarRevision({ conteos, niveles });
         estado.insumos = r.insumos;
-        const cambios = r.ajustes + r.estados;
+        const cambios = r.ajustes + r.niveles;
         aviso(cambios ? `Revisión guardada: ${cambios} ${cambios === 1 ? 'cambio' : 'cambios'}` : 'Revisión guardada: todo estaba igual');
         location.hash = '#hoy';
       } catch (err) {
@@ -1380,13 +1330,15 @@
       h('span', { class: 'menu-op-texto' }, texto),
       h('span', { class: 'menu-op-ayuda' }, ayuda));
     const ir = (hash) => () => { Hoja.cerrar(); location.hash = hash; };
+    const admin = Api.sesion.esAdmin;
 
     Hoja.abrir(h('div', null,
       h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Registrar'),
-      h('div', { class: 'menu' },
-        opcion('Lo que entró', 'Producción y compras: suma al inventario', ir('#produccion')),
-        opcion('Ventas del día', 'Panes y bebidas: descuenta del inventario', ir('#ventas')),
-        opcion('Nueva casilla', 'Agregar algo nuevo al inventario', abrirNuevaCasilla))));
+      h('div', { class: 'menu' }, ...sinVacios([
+        opcion('Compras', 'Lo que entró: suma al inventario', ir('#produccion')),
+        admin && opcion('Ventas del día', 'Platos y bebidas: descuenta del inventario', ir('#ventas')),
+        admin && opcion('Nuevo producto', 'Agregar algo nuevo al inventario', () => abrirProducto(null))
+      ]))));
   }
 
   // ---------- ingreso: PIN personal (el nombre lo dice el servidor) ----------
@@ -1454,12 +1406,13 @@
     ventas: vistaVentas,
     recetas: vistaRecetas,
     mas: vistaMas,
+    'mas/productos': vistaProductos,
     'mas/revision': vistaRevision,
     'mas/movimientos': vistaMovimientos,
     'mas/ajustes': vistaAjustes
   };
 
-  const RUTAS_ADMIN = ['mas/revision', 'mas/ajustes'];
+  const RUTAS_ADMIN = ['mas/productos', 'mas/revision', 'mas/ajustes', 'ventas'];
 
   function rutaActual() {
     const r = location.hash.replace(/^#\/?/, '');
@@ -1469,7 +1422,7 @@
   function render() {
     estado.vistaId++;
     const ruta = rutaActual();
-    // Producción, Ventas y Por comprar se abren desde Hoy, así que la barra marca Hoy.
+    // Compras, Ventas y Pendientes de compra se abren desde Hoy, así que la barra marca Hoy.
     const seccion = { produccion: 'hoy', ventas: 'hoy', 'por-comprar': 'hoy' }[ruta] || ruta.split('/')[0];
     document.querySelectorAll('.nav-item[data-ruta]').forEach((a) => {
       const activo = a.dataset.ruta === seccion;

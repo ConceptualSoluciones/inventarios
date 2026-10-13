@@ -223,12 +223,10 @@ button { cursor: pointer; }
 .control-num { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .control-etiqueta { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
 
-/* Salsas (Lleno · Medio · Poco · Vacío) e ingredientes (Hay / Falta) */
+/* Al ojo: salsas, aderezos y verduras (Lleno · Medio · Bajo · Vacío) */
 .fila-estado { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .fila-estado-cabeza { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
-.fila-estado--marcar { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .estados { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.estados--2 { flex: none; grid-template-columns: repeat(2, 76px); }
 .estado-btn {
   min-height: 52px;
   padding: 0 4px;
@@ -240,7 +238,7 @@ button { cursor: pointer; }
   font-weight: 500;
 }
 .estado-btn[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--on-ink); font-weight: 700; }
-/* Poco, Vacío y Falta marcados: fondo de alerta y borde rojo (el texto ya dice qué es) */
+/* Bajo y Vacío marcados: fondo de alerta y borde rojo (el texto ya dice qué es) */
 .estado-btn--alerta[aria-pressed="true"] { border: 2px solid var(--alert); background: var(--alert-bg); color: var(--alert-ink); }
 
 /* Movimientos y Ajustes */
@@ -486,6 +484,9 @@ select.campo { appearance: auto; }
 .fila-nota { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
 .valor { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .valor-unidad { margin-left: 4px; font-size: 13px; font-weight: 500; }
+/* Nivel al ojo, solo para ver (cocina); en Bajo o Vacío va en rojo */
+.nivel-texto { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; }
+.nivel-texto--alerta { color: var(--alert-texto); }
 
 /* Listas con campos (Producción, Ventas, resumen) */
 .lista-items { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
@@ -497,6 +498,11 @@ select.campo { appearance: auto; }
 .ing-bloque { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .ing-fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ing-cantidad { display: flex; flex-direction: column; gap: 4px; }
+
+/* Casilla para marcar (revisado, al ojo) */
+.campo-check { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 16px; font-weight: 500; }
+.campo-check input { width: 24px; height: 24px; margin: 0; accent-color: var(--ink); }
+.campo-check:has(input:disabled) { color: var(--ink-soft); }
 
 /* Menú del botón + */
 .menu { display: flex; flex-direction: column; gap: 12px; }
