@@ -1,5 +1,6 @@
 /**
- * SANTO — datos iniciales (salen de RECETAS.md: la ficha de la dueña, revisada con cocina el 07/10/2026).
+ * SANTO — datos iniciales (salen de RECETAS.md: la ficha de la dueña, revisada con cocina el 07/10/2026,
+ * y de lo que la dueña decidió el 12/10/2026).
  *
  * Todo se carga como BORRADOR: productos y recetas quedan marcados "por revisar" para que la dueña los
  * corrija en las pantallas de Productos y Recetas.
@@ -7,89 +8,97 @@
  * cargarSemilla() agrega lo que falta, comparando por id. No duplica nada si se corre dos veces
  * y no toca lo que ya existe (si alguien lo cambió en la app, se respeta).
  *
- * Formas de medir: unidad, gramos, presentacion (lo producido: porción, jarra…) y ojo (lleno · medio · bajo · vacío).
- * Al ojo van solo las salsas y aderezos, la chalaquita, la arúgula y la lechuga (decidido el 12/10/2026).
- * Lo de solo producción va por porción. Lo demás que la ficha tenía en "Hay / Falta" lleva una propuesta por revisar.
+ * Formas de medir: unidad, gramos, presentacion (porción, jarra…) y ojo (lleno · medio · bajo · vacío).
+ * Origen: comprado (aparece en Compras, aunque vaya al ojo) o hecho_en_casa (sale de Producción).
+ * Cada proteína tiene su crudo (comprado, por gramos) y su porcionado (hecho en casa, por porción).
  */
 
+const COMPRADO = 'comprado';
+const EN_CASA = 'hecho_en_casa';
+
 const SEMILLA = {
-  // [id, nombre, categoria, medicion, unidad, nota]
+  // [id, nombre, categoria, medicion, unidad, nota, origen]
   insumos: [
-    // Carnes y proteínas: porciones producidas. La nota es el gramaje de referencia de la ficha.
-    ['prep-panceta', 'Panceta / Chicharrón', 'Carnes y proteínas', 'presentacion', 'porción', '140 g'],
-    ['prep-pollo', 'Pollo Invicto', 'Carnes y proteínas', 'presentacion', 'porción', '150 g crudo'],
-    ['prep-asado', 'Asado', 'Carnes y proteínas', 'presentacion', 'porción', '120 g'],
-    ['prep-portobello', 'Portobello anticuchero', 'Carnes y proteínas', 'presentacion', 'porción', '90 g'],
-    ['prep-fiambres', 'Mix fiambres Artesano', 'Carnes y proteínas', 'presentacion', 'porción', '90 g'],
-    ['prep-pollo-desh', 'Pollo deshilachado', 'Carnes y proteínas', 'presentacion', 'porción', '140 g'],
+    // Proteínas crudas: se compran por peso y en Producción se porcionan.
+    ['ins-res-cruda', 'Carne de res cruda', 'Carnes y proteínas', 'gramos', 'g', 'se porciona en Asado', COMPRADO],
+    ['ins-chancho-crudo', 'Chancho crudo', 'Carnes y proteínas', 'gramos', 'g', 'se porciona en Panceta / Chicharrón', COMPRADO],
+    ['ins-pollo-deshuesado', 'Pollo deshuesado', 'Carnes y proteínas', 'gramos', 'g',
+      'se porciona en Pollo Invicto y Pollo deshilachado', COMPRADO],
+    ['ins-portobello', 'Portobello', 'Carnes y proteínas', 'gramos', 'g', 'se porciona en Portobello anticuchero', COMPRADO],
+    ['ins-jamon', 'Jamón', 'Carnes y proteínas', 'gramos', 'g', 'va en el Mix fiambres Artesano', COMPRADO],
+    ['ins-salami', 'Salami ahumado', 'Carnes y proteínas', 'gramos', 'g', 'va en el Mix fiambres Artesano', COMPRADO],
+
+    // Proteínas porcionadas: salen de Producción. La nota es el gramaje de referencia de la ficha.
+    ['prep-panceta', 'Panceta / Chicharrón', 'Carnes y proteínas', 'presentacion', 'porción', '140 g', EN_CASA],
+    ['prep-pollo', 'Pollo Invicto', 'Carnes y proteínas', 'presentacion', 'porción', '150 g crudo', EN_CASA],
+    ['prep-asado', 'Asado', 'Carnes y proteínas', 'presentacion', 'porción', '120 g', EN_CASA],
+    ['prep-portobello', 'Portobello anticuchero', 'Carnes y proteínas', 'presentacion', 'porción', '90 g', EN_CASA],
+    ['prep-fiambres', 'Mix fiambres Artesano', 'Carnes y proteínas', 'presentacion', 'porción', '90 g', EN_CASA],
+    ['prep-pollo-desh', 'Pollo deshilachado', 'Carnes y proteínas', 'presentacion', 'porción', '140 g', EN_CASA],
 
     // Panes, palta, tomate, papas y camote.
-    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'unidad', 'unidad', ''],
-    ['ins-roseta', 'Roseta', 'Panes', 'unidad', 'unidad', ''],
-    ['ins-focaccia', 'Focaccia', 'Panes', 'unidad', 'unidad', ''],
-    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'unidad', 'unidad', ''],
-    ['ins-palta', 'Palta', 'Verduras', 'unidad', 'unidad', '1 palta = 2 panes'],
-    ['ins-tomate', 'Tomate', 'Verduras', 'unidad', 'unidad', '1 tomate = 2 panes'],
-    ['ins-papas', 'Papas congeladas', 'Congelados', 'presentacion', 'porción', 'bolsa de 200 g'],
-    ['comp-camote-frito', 'Camote frito', 'Complementos', 'presentacion', 'porción', ''],
+    ['ins-pan-cubano', 'Pan cubano', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-roseta', 'Roseta', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-focaccia', 'Focaccia', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-masa-madre', 'Pan masa madre con semillas', 'Panes', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-palta', 'Palta', 'Verduras', 'unidad', 'unidad', '1 palta = 2 panes', COMPRADO],
+    ['ins-tomate', 'Tomate', 'Verduras', 'unidad', 'unidad', '1 tomate = 2 panes', COMPRADO],
+    ['ins-papas', 'Papas congeladas', 'Congelados', 'presentacion', 'porción', 'bolsa de 200 g', COMPRADO],
+    ['ins-camote-crudo', 'Camote crudo', 'Verduras', 'gramos', 'g', 'se porciona y congela: sale Camote frito', COMPRADO],
+    ['comp-camote-frito', 'Camote frito', 'Complementos', 'presentacion', 'porción', '', EN_CASA],
 
-    // Salsas y aderezos: al ojo, con la botella dispensadora.
-    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-aji-huacatay', 'Ají amarillo con ajo y huacatay', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-golf', 'Golf ahumada', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-culantro', 'Culantro y cebollín', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-pesto', 'Pesto de albahaca', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-glaseado', 'Glaseado Bravo', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas y aderezos', 'ojo', '', ''],
-    ['sal-anticuchero', 'Aderezo anticuchero', 'Salsas y aderezos', 'ojo', '', ''],
+    // Salsas y aderezos: hechos en casa, al ojo, con la botella dispensadora.
+    ['sal-rocoto-pic', 'Rocoto ahumado picante', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-rocoto-sin', 'Rocoto ahumado sin picante', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-aji-ahumado', 'Ají amarillo ahumado', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-aji-huacatay', 'Ají amarillo con ajo y huacatay', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-golf', 'Golf ahumada', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-culantro', 'Culantro y cebollín', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-pesto', 'Pesto de albahaca', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-glaseado', 'Glaseado Bravo', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
+    ['sal-anticuchero', 'Aderezo anticuchero', 'Salsas y aderezos', 'ojo', '', '', EN_CASA],
 
-    // Verduras, chalaquita y sarsa al ojo; los demás complementos por porción.
-    ['ins-lechuga', 'Lechuga', 'Verduras', 'ojo', '', ''],
-    ['ins-arugula', 'Arúgula', 'Verduras', 'ojo', '', ''],
-    ['ins-cebollita', 'Cebollita', 'Verduras', 'ojo', '', ''],
-    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'ojo', '', ''],
-    ['comp-aros', 'Aros de cebolla', 'Complementos', 'presentacion', 'porción', ''],
-    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'ojo', '', ''],
-    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'presentacion', 'porción', ''],
+    // Verduras al ojo (compradas) y complementos hechos en casa.
+    ['ins-lechuga', 'Lechuga', 'Verduras', 'ojo', '', '', COMPRADO],
+    ['ins-arugula', 'Arúgula', 'Verduras', 'ojo', '', '', COMPRADO],
+    ['ins-cebollita', 'Cebollita', 'Verduras', 'ojo', '', '', COMPRADO],
+    ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'ojo', '', '', EN_CASA],
+    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'ojo', '', '', EN_CASA],
+    ['comp-aros', 'Aros de cebolla', 'Complementos', 'presentacion', 'porción', '', EN_CASA],
+    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'presentacion', 'porción', '', EN_CASA],
 
     // Lácteos y secos.
-    ['ins-paria', 'Queso Paria', 'Lácteos', 'gramos', 'g', ''],
-    ['ins-huevo', 'Huevo', 'Secos', 'unidad', 'unidad', ''],
-    ['ins-harina', 'Harina', 'Secos', 'ojo', '', ''],
-    ['ins-panko', 'Panko', 'Secos', 'ojo', '', ''],
+    ['ins-paria', 'Queso Paria', 'Lácteos', 'gramos', 'g', '', COMPRADO],
+    ['ins-huevo', 'Huevo', 'Secos', 'unidad', 'unidad', '', COMPRADO],
+    ['ins-harina', 'Harina', 'Secos', 'ojo', '', '', COMPRADO],
+    ['ins-panko', 'Panko', 'Secos', 'ojo', '', '', COMPRADO],
 
-    // Camote crudo: llega comprado y en Producción se porciona y congela (sale Camote frito). Falta saber cómo se mide.
-    ['ins-camote-crudo', 'Camote crudo', 'Solo producción', 'presentacion', 'porción', ''],
-
-    // Bebidas.
-    ['beb-chicha', 'Chicha', 'Bebidas', 'unidad', 'unidad', ''],
-    ['beb-maracuya', 'Maracuyá', 'Bebidas', 'unidad', 'unidad', '']
+    // Bebidas: se preparan en casa.
+    ['beb-chicha', 'Chicha', 'Bebidas', 'unidad', 'unidad', '', EN_CASA],
+    ['beb-maracuya', 'Maracuyá', 'Bebidas', 'unidad', 'unidad', '', EN_CASA]
   ],
 
-  // Insumos solo de producción: por porción (la unidad se corrige en Productos). Su id sale del nombre ("ins-" + slug).
+  // Insumos solo de producción, comprados: por porción hasta que se decida unidad o gramos. Su id sale del nombre.
   soloProduccion: [
     'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido',
     'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
     'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate'
   ],
-  // Condimentos de solo producción: al ojo (decidido el 12/10/2026). Su id sale del nombre.
+  // Condimentos de solo producción, comprados: al ojo. Su id sale del nombre.
   soloProduccionOjo: ['Sal', 'Pimienta negra', 'Comino', 'Ajinomoto', 'Laurel', 'Canela china',
     'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
   ],
-  // Solo producción, pero crudo comprado: por gramos. [nombre]
-  soloProduccionGramos: ['Pollo deshuesado'],
 
-  // Alias por id.
+  // Alias por id. "chancho", "carne" y "pollo crudo" apuntan solo al crudo.
   alias: {
+    'ins-res-cruda': 'carne, res',
+    'ins-chancho-crudo': 'chancho, cerdo',
+    'ins-pollo-deshuesado': 'pollo crudo',
+    'ins-portobello': 'hongo portobello',
     'comp-sarsa': 'aderezo criollo, salsa criolla',
     'comp-camote-frito': 'camote congelado'
   },
-
-  // Lo que la dueña ya confirmó (12/10/2026): entra sin la marca "por revisar".
-  revisados: ['sal-anticuchero', 'ins-cebollita', 'comp-sarsa', 'ins-harina', 'ins-panko', 'comp-camote-frito',
-    'ins-huevo', 'comp-aros', 'comp-quesos', 'ins-paria', 'ins-pollo-deshuesado'],
 
   // [id, nombre, grupo, estado, [[insumo_id, cantidad], ...]] — lo que lleva UN producto vendido.
   recetas: [
@@ -125,28 +134,24 @@ function cargarSemilla() {
   const existentes = {};
   leerTabla('Insumos').forEach((i) => { existentes[i.id] = true; });
   const nuevos = [];
-  const producto = (id, nombre, categoria, medicion, unidad, nota) => {
+  const producto = (id, nombre, categoria, medicion, unidad, nota, origen) => {
     const ojo = medicion === 'ojo';
     return {
       id: id, nombre: nombre, alias: SEMILLA.alias[id] || '', categoria: categoria, medicion: medicion, unidad: ojo ? '' : unidad,
       stock_actual: ojo ? '' : 0, stock_minimo: ojo ? '' : 0, estado_actual: ojo ? NIVEL_INICIAL : '',
-      nota: nota || '', revisar: SEMILLA.revisados.indexOf(id) >= 0 ? '' : 'sí', activo: true
+      nota: nota || '', revisar: 'sí', activo: true, origen: origen
     };
   };
-  SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, nota]) => {
-    if (!existentes[id]) nuevos.push(producto(id, nombre, categoria, medicion, unidad, nota));
+  SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, nota, origen]) => {
+    if (!existentes[id]) nuevos.push(producto(id, nombre, categoria, medicion, unidad, nota, origen));
   });
   SEMILLA.soloProduccion.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'presentacion', 'porción', ''));
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'presentacion', 'porción', '', COMPRADO));
   });
   SEMILLA.soloProduccionOjo.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(Object.assign(producto(id, nombre, 'Solo producción', 'ojo', '', ''), { revisar: '' }));
-  });
-  SEMILLA.soloProduccionGramos.forEach((nombre) => {
-    const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'gramos', 'g', ''));
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'ojo', '', '', COMPRADO));
   });
   agregarFilas('Insumos', nuevos);
 

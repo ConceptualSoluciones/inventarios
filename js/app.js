@@ -241,8 +241,9 @@
     ['presentacion', 'Por porción o presentación'], ['ojo', 'Al ojo (lleno · medio · bajo · vacío)']];
   const seCuenta = (i) => i.medicion !== 'ojo';
   const alOjo = (i) => i.medicion === 'ojo';
-  // Lo que se compra: por unidad o por gramos. Lo porcionado sale de Producción.
-  const seCompra = (i) => i.medicion === 'unidad' || i.medicion === 'gramos';
+  // Origen: lo comprado aparece en Compras (aunque vaya al ojo); lo hecho en casa sale de Producción.
+  const seCompra = (i) => i.origen === 'comprado';
+  const seHaceEnCasa = (i) => i.origen === 'hecho_en_casa';
   const NIVELES = [['lleno', 'Lleno'], ['medio', 'Medio'], ['bajo', 'Bajo'], ['vacío', 'Vacío']];
   const NIVELES_ALERTA = ['bajo', 'vacío'];
   // Mismos colores que el mensaje de WhatsApp.
@@ -507,6 +508,7 @@
 
   function resumenProducto(i) {
     return sinVacios([
+      i.origen === 'hecho_en_casa' ? 'hecho en casa' : 'comprado',
       alOjo(i) ? 'al ojo' : i.medicion === 'gramos' ? 'por gramos' : `por ${i.unidad}`,
       i.stock_minimo > 0 && `mínimo ${mostrarTexto(i.stock_minimo, i)}`,
       i.alias && `alias: ${i.alias}`,
@@ -554,6 +556,10 @@
     const otraCategoria = input('pr-otra', '', { maxlength: 30 });
     const medicion = h('select', { class: 'campo', id: 'pr-medicion' }, FORMAS_MEDIR.map(([v, t]) => h('option', { value: v }, t)));
     medicion.value = p.medicion;
+    const origen = h('select', { class: 'campo', id: 'pr-origen' },
+      h('option', { value: 'comprado' }, 'Se compra (aparece en Compras)'),
+      h('option', { value: 'hecho_en_casa' }, 'Se hace en casa (sale de Producción)'));
+    origen.value = p.origen || 'comprado';
     const unidad = input('pr-unidad', p.medicion === 'unidad' || p.medicion === 'presentacion' ? p.unidad : '',
       { maxlength: 20, placeholder: 'unidad, porción, jarra, pan…' });
     const fMinimo = campoNumero({ valor: p.stock_minimo || null, etiqueta: 'el mínimo', id: 'pr-minimo' });
@@ -585,6 +591,11 @@
       notaStock.textContent = en;
     }
     [categoria, medicion].forEach((el) => el.addEventListener('change', actualizar));
+    // En un producto nuevo, lo porcionado se hace en casa y lo demás se compra, hasta que se elija a mano.
+    origen.addEventListener('change', () => { origen.dataset.elegido = '1'; });
+    medicion.addEventListener('change', () => {
+      if (nuevo && !origen.dataset.elegido) origen.value = medicion.value === 'presentacion' ? 'hecho_en_casa' : 'comprado';
+    });
     unidad.addEventListener('input', actualizar);
     actualizar();
 
@@ -600,7 +611,7 @@
       }
       const datos = {
         nombre: nombre.value.trim(), alias: alias.value, categoria: cat, medicion: medicion.value,
-        unidad: unidadElegida(), stock_minimo: fMinimo.valor || 0, nota: nota.value.trim()
+        unidad: unidadElegida(), stock_minimo: fMinimo.valor || 0, nota: nota.value.trim(), origen: origen.value
       };
       ocupado(btn, 'Guardando…');
       try {
@@ -648,6 +659,7 @@
       campo('pr-alias', 'Alias', alias, 'opcional, separados por coma'),
       campo('pr-categoria', 'Categoría', categoria),
       grupoOtra,
+      campo('pr-origen', '¿Se compra o se hace en casa?', origen),
       campo('pr-medicion', 'Cómo se mide', medicion),
       notaCambio,
       grupoUnidad,
@@ -694,7 +706,7 @@
     estado.insumos = datos.insumos;
     const insumos = datos.insumos.filter(seCompra);
     if (!insumos.length) {
-      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay productos que se compren por unidad o por gramos.'));
+      zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay productos comprados.'));
       return;
     }
     const campos = [];
@@ -715,11 +727,13 @@
             alCambiar: (v) => { filaPrecio.hidden = !(v > 0); }
           });
           campos.push({ insumo, campo, precio });
-          const en = insumo.unidad === 'g' ? 'en gramos (1 kg = 1000)' : `en ${unidadDeIngreso(insumo)}`;
+          const nota = alOjo(insumo)
+            ? `va al ojo: está en ${textoNivel(insumo.estado_actual)} · al comprar queda en ${textoNivel('lleno')}`
+            : `hay ${mostrarTexto(insumo.stock_actual, insumo)} · ${insumo.unidad === 'g' ? 'en gramos (1 kg = 1000)' : `en ${unidadDeIngreso(insumo)}`}`;
           return h('div', { class: 'compra', 'data-buscar': textoBusqueda(insumo) },
             h('div', { class: 'fila' },
               h('label', { class: 'fila-etiqueta', for: id }, insumo.nombre,
-                h('span', { class: 'fila-nota' }, `hay ${mostrarTexto(insumo.stock_actual, insumo)} · ${en}`)),
+                h('span', { class: 'fila-nota' }, nota)),
               campo.el),
             filaPrecio);
         })))));
@@ -759,9 +773,6 @@
 
   // ---------- Producción: lo que se usó (resta) y lo que salió (suma) ----------
 
-  // Lo que sale: lo porcionado y lo que se prepara en casa y va al ojo. Igual que sePrepara en Code.gs.
-  const CATEGORIAS_PREPARADAS_AL_OJO = ['Salsas y aderezos', 'Complementos'];
-  const sePrepara = (i) => i.medicion === 'presentacion' || (alOjo(i) && CATEGORIAS_PREPARADAS_AL_OJO.includes(i.categoria));
 
   function vistaProduccion(main) {
     const zona = h('div', { class: 'hoy' }, esqueletoFilas(6));
@@ -835,11 +846,11 @@
 
     const btnUsado = h('button', {
       type: 'button', class: 'btn btn-secundario btn-ancho',
-      onclick: () => elegirProducto('¿Qué usaste?', datos.insumos.filter(seCompra), (i) => agregar(listaUsados, usados, i))
+      onclick: () => elegirProducto('¿Qué usaste?', datos.insumos.filter((i) => seCompra(i) && seCuenta(i)), (i) => agregar(listaUsados, usados, i))
     }, '+ Agregar lo que usé');
     const btnSalida = h('button', {
       type: 'button', class: 'btn btn-secundario btn-ancho',
-      onclick: () => elegirProducto('¿Qué salió?', datos.insumos.filter(sePrepara), (i) => agregar(listaSalidas, salidas, i))
+      onclick: () => elegirProducto('¿Qué salió?', datos.insumos.filter(seHaceEnCasa), (i) => agregar(listaSalidas, salidas, i))
     }, '+ Agregar lo que salió');
 
     const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar producción');

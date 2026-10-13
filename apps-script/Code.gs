@@ -37,8 +37,9 @@ const HORA_CORTE_DIA = 5;
 
 const HOJAS = {
   // revisar = "sí" en lo que vino de la semilla y la dueña todavía no confirmó.
+  // origen = comprado (aparece en Compras) o hecho_en_casa (sale de Producción).
   Insumos: ['id', 'nombre', 'alias', 'categoria', 'medicion', 'unidad', 'stock_actual', 'stock_minimo',
-    'estado_actual', 'nota', 'revisar', 'activo'],
+    'estado_actual', 'nota', 'revisar', 'activo', 'origen'],
   // fecha = día de operación (para agrupar por día) · momento = fecha calendario y hora reales (para ordenar).
   // precio = total pagado en una compra (opcional).
   Movimientos: ['id', 'fecha', 'hora', 'insumo_id', 'tipo', 'cantidad', 'precio', 'origen', 'nota', 'usuario', 'momento'],
@@ -69,8 +70,11 @@ const SIGNO_MOVIMIENTO = {
 
 // Lo que tiene stock: todo menos lo que va al ojo.
 function seCuenta(i) { return i.medicion !== 'ojo'; }
-// Lo que se compra: por unidad o por gramos. Lo porcionado (presentacion) sale de Producción.
-function seCompra(i) { return i.medicion === 'unidad' || i.medicion === 'gramos'; }
+// origen: "comprado" aparece en Compras (aunque vaya al ojo); "hecho_en_casa" sale de Producción.
+const ORIGENES = ['comprado', 'hecho_en_casa'];
+function seCompra(i) { return i.origen === 'comprado'; }
+// Si falta el origen: lo porcionado se hace en casa y lo demás se compra.
+function origenDe(i) { return ORIGENES.indexOf(i.origen) >= 0 ? i.origen : i.medicion === 'presentacion' ? 'hecho_en_casa' : 'comprado'; }
 
 // ---------------------------------------------------------------------------
 // Instalación
@@ -432,7 +436,7 @@ function insumosActivos() {
       medicion: medicion, unidad: ojo ? '' : String(i.unidad || UNIDAD_POR_DEFECTO[medicion]),
       stock_actual: ojo ? 0 : num(i.stock_actual), stock_minimo: ojo ? 0 : num(i.stock_minimo),
       estado_actual: ojo ? (NIVELES.indexOf(i.estado_actual) >= 0 ? i.estado_actual : NIVEL_INICIAL) : '',
-      nota: String(i.nota || ''), revisar: marcado(i.revisar)
+      nota: String(i.nota || ''), revisar: marcado(i.revisar), origen: origenDe(i)
     };
   });
 }
@@ -455,7 +459,8 @@ function datosProducto(d) {
     unidad: ojo ? '' : medicion === 'gramos' ? 'g'
       : String(d.unidad || '').trim().toLowerCase().slice(0, 20) || UNIDAD_POR_DEFECTO[medicion],
     stock_minimo: ojo || vacio(d.stock_minimo) ? 0 : validarNumero(d.stock_minimo, 'el mínimo'),
-    nota: String(d.nota || '').trim().slice(0, 80)
+    nota: String(d.nota || '').trim().slice(0, 80),
+    origen: ORIGENES.indexOf(d.origen) >= 0 ? d.origen : origenDe({ medicion: medicion })
   };
 }
 
@@ -519,7 +524,7 @@ function guardarProducto(d) {
       nombre: p.nombre, alias: p.alias, categoria: p.categoria, medicion: p.medicion, unidad: p.unidad,
       stock_minimo: ojo ? '' : p.stock_minimo,
       estado_actual: !ojo ? '' : NIVELES.indexOf(i.estado_actual) >= 0 ? i.estado_actual : NIVEL_INICIAL,
-      nota: p.nota,
+      nota: p.nota, origen: p.origen,
       revisar: d.revisado ? '' : i.revisar
     });
     recalcularStocks(); // si cambió el mínimo o la forma de medir
@@ -647,7 +652,8 @@ function cargarCompras() {
   return { fecha: fecha, compras: compras, insumos: insumosActivos() };
 }
 
-// Compras: lo que entró, por unidad o por gramos. Suma al inventario. El precio total de cada compra es opcional.
+// Compras: todo lo que tiene origen "comprado", aunque vaya al ojo. Suma al inventario; lo que va al ojo
+// guarda la cantidad comprada y queda en Lleno. El precio total de cada compra es opcional.
 function registrarCompras(d, ctx) {
   const compras = (Array.isArray(d.compras) ? d.compras : [])
     .map((e) => ({
@@ -664,11 +670,13 @@ function registrarCompras(d, ctx) {
     compras.forEach((e) => {
       const p = productos[e.insumo_id];
       if (!p) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
-      if (!seCompra(p)) throw new ErrorApp(p.nombre + ' no se compra: sale de Producción o va al ojo.', 'datos');
+      if (!seCompra(p)) throw new ErrorApp(p.nombre + ' no se compra: se hace en casa (sale de Producción).', 'datos');
     });
     const hora = horaLima();
     agregarFilas('Movimientos', compras.map((e) =>
       movimiento(e.insumo_id, 'compra', e.cantidad, ctx, { hora: hora, precio: e.precio })));
+    aplicarNiveles(compras.filter((e) => productos[e.insumo_id].medicion === 'ojo')
+      .map((e) => ({ insumo_id: e.insumo_id, estado: NIVEL_INICIAL })), ctx);
     recalcularStocks();
     return Object.assign({ guardadas: compras.length }, cargarCompras());
   });
@@ -678,12 +686,8 @@ function registrarCompras(d, ctx) {
 // Producción: lo que se usó (resta) y lo que salió (suma). Las cantidades las pone quien produce.
 // ---------------------------------------------------------------------------
 
-// Lo que sale de Producción: lo porcionado (porciones, jarras…) y lo que se prepara en casa y va al ojo
-// (salsas, aderezos, chalaquita, sarsa). Al salir, eso queda en "lleno".
-const CATEGORIAS_PREPARADAS_AL_OJO = ['Salsas y aderezos', 'Complementos'];
-function sePrepara(i) {
-  return i.medicion === 'presentacion' || (i.medicion === 'ojo' && CATEGORIAS_PREPARADAS_AL_OJO.indexOf(i.categoria) >= 0);
-}
+// Lo que sale de Producción es lo hecho en casa (porciones, jarras, salsas…); lo que va al ojo queda en "lleno".
+// Lo que se usa es lo comprado que se cuenta (carne cruda, huevos…).
 const esProduccion = (m) => String(m.origen).indexOf('produccion:') === 0;
 
 // Las producciones de hoy, cada una con lo que se usó y lo que salió.
@@ -724,11 +728,13 @@ function registrarProduccion(d, ctx) {
     };
     usados.forEach((e) => {
       const p = producto(e);
-      if (!seCompra(p)) throw new ErrorApp(p.nombre + ' no se puede anotar como usado: solo lo que se compra.', 'datos');
+      if (origenDe(p) !== 'comprado' || p.medicion === 'ojo') {
+        throw new ErrorApp(p.nombre + ' no se puede anotar como usado: solo lo comprado que se cuenta.', 'datos');
+      }
     });
     const salen = salidas.filter((e) => {
       const p = producto(e);
-      if (!sePrepara(p)) throw new ErrorApp(p.nombre + ' no sale de Producción.', 'datos');
+      if (origenDe(p) !== 'hecho_en_casa') throw new ErrorApp(p.nombre + ' no sale de Producción: se compra.', 'datos');
       return p.medicion === 'ojo' || e.cantidad > 0;
     });
     if (!salen.length) throw new ErrorApp('Escribe lo que salió de la producción.', 'datos');
