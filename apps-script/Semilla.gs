@@ -8,8 +8,8 @@
  * y no toca lo que ya existe (si alguien lo cambió en la app, se respeta).
  *
  * Formas de medir: unidad, gramos, presentacion (lo producido: porción, jarra…) y ojo (lleno · medio · bajo · vacío).
- * Lo que la ficha tenía en "Hay / Falta" pasa a "al ojo", salvo lo que la lógica nueva nombra:
- * huevos por unidad, queso y pollo crudo por gramos y el camote frito por porción.
+ * Al ojo van solo las salsas y aderezos, la chalaquita, la arúgula y la lechuga (decidido el 12/10/2026).
+ * Lo de solo producción va por porción. Lo demás que la ficha tenía en "Hay / Falta" lleva una propuesta por revisar.
  */
 
 const SEMILLA = {
@@ -44,26 +44,26 @@ const SEMILLA = {
     ['sal-glaseado', 'Glaseado Bravo', 'Salsas y aderezos', 'ojo', '', ''],
     ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas y aderezos', 'ojo', '', ''],
 
-    // Verduras y complementos al ojo.
+    // Verduras y chalaquita al ojo; los demás complementos por porción (propuesta, por revisar).
     ['ins-lechuga', 'Lechuga', 'Verduras', 'ojo', '', ''],
     ['ins-arugula', 'Arúgula', 'Verduras', 'ojo', '', ''],
     ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'ojo', '', ''],
-    ['comp-aros', 'Aros de cebolla', 'Complementos', 'ojo', '', ''],
-    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'ojo', '', ''], // D2: pendiente si se quita
-    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'ojo', '', ''],
+    ['comp-aros', 'Aros de cebolla', 'Complementos', 'presentacion', 'porción', ''],
+    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'presentacion', 'porción', ''], // D2: pendiente si se quita
+    ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'presentacion', 'porción', ''],
 
-    // Lácteos y secos.
+    // Lácteos y secos (propuesta, por revisar).
     ['ins-paria', 'Queso Paria', 'Lácteos', 'gramos', 'g', ''],
     ['ins-huevo', 'Huevo', 'Secos', 'unidad', 'unidad', ''],
-    ['ins-harina', 'Harina', 'Secos', 'ojo', '', ''],
-    ['ins-panko', 'Panko', 'Secos', 'ojo', '', ''],
+    ['ins-harina', 'Harina', 'Secos', 'gramos', 'g', ''],
+    ['ins-panko', 'Panko', 'Secos', 'gramos', 'g', ''],
 
     // Bebidas.
     ['beb-chicha', 'Chicha', 'Bebidas', 'unidad', 'unidad', ''],
     ['beb-maracuya', 'Maracuyá', 'Bebidas', 'unidad', 'unidad', '']
   ],
 
-  // Insumos solo de producción: al ojo. Su id sale del nombre ("ins-" + slug).
+  // Insumos solo de producción: por porción (la unidad se corrige en Productos). Su id sale del nombre ("ins-" + slug).
   soloProduccion: [
     'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido', 'Ajinomoto', 'Sal', 'Pimienta negra', 'Comino', 'Laurel',
     'Canela china', 'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
@@ -120,7 +120,7 @@ function cargarSemilla() {
   });
   SEMILLA.soloProduccion.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'ojo', '', ''));
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'presentacion', 'porción', ''));
   });
   SEMILLA.soloProduccionGramos.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
