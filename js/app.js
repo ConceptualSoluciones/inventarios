@@ -34,6 +34,7 @@
   const sinVacios = (lista) => lista.filter(Boolean);
 
   const nf = new Intl.NumberFormat('es-PE', { maximumFractionDigits: 2 });
+  const soles = (n) => 'S/ ' + new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
   // Las unidades las nombra el admin (unidad, porción, jarra, pan…). Estas dos se abrevian.
   const UNIDAD_CORTA = { 'porción': 'porc.', unidad: 'u.' };
 
@@ -284,21 +285,32 @@
     return input;
   }
 
-  // ---------- Hoy: menú principal + lo que falta hacer ----------
+  // ---------- Hoy: el día en tres pasos + lo que falta hacer ----------
 
-  const MENU = [
-    { id: 'inventario', nombre: 'Inventario', etiqueta: 'lo que hay', color: 'mustard', ilustracion: 'inventario', href: '#inventario' },
-    { id: 'recetas', nombre: 'Recetas', etiqueta: 'lo que lleva cada plato', color: 'plum', ilustracion: 'recetas', href: '#recetas' },
-    { id: 'produccion', nombre: 'Compras', etiqueta: 'lo que entró', color: 'navy', ilustracion: 'produccion', href: '#produccion' },
-    { id: 'ventas', nombre: 'Ventas', etiqueta: 'platos y bebidas que salen', color: 'sand', ilustracion: 'ventas', href: '#ventas' }
+  // Apertura → Producción → Cierre. El cierre lo hace un admin: cocina lo ve, pero no lo abre.
+  const PASOS = [
+    { id: 'compras', nombre: 'Compras', etiqueta: '1 · apertura', color: 'navy', ilustracion: 'ventas', href: '#compras' },
+    { id: 'produccion', nombre: 'Producción', etiqueta: '2 · en cocina', color: 'olive', ilustracion: 'produccion', href: null },
+    { id: 'cierre', nombre: 'Cierre', etiqueta: '3 · en la noche', color: 'sand', ilustracion: 'inventario', href: '#ventas', soloAdmin: true }
   ];
 
-  function pildoraMenu(op, tag) {
-    return h('a', { class: `pill pill--${op.color}` + (tag ? ' pill--alerta' : ''), href: op.href },
-      tag && h('span', { class: 'pill-tag' }, tag),
-      h('span', { class: 'pill-etiqueta' }, op.etiqueta),
-      h('span', { class: 'pill-nombre pill-nombre--menu' }, op.nombre),
-      ilustracion(op));
+  function pildoraPaso(paso, texto) {
+    const abre = paso.href && !(paso.soloAdmin && !Api.sesion.esAdmin);
+    return h(abre ? 'a' : 'div', { class: `pill pill--${paso.color}`, href: abre ? paso.href : null },
+      h('span', { class: 'pill-etiqueta' }, paso.etiqueta),
+      h('span', { class: 'pill-nombre pill-nombre--menu' }, paso.nombre),
+      texto && h('span', { class: 'pill-estado' }, texto),
+      ilustracion(paso));
+  }
+
+  // En qué va cada paso, según lo anotado hoy.
+  function textoPaso(paso, dia) {
+    if (paso.id === 'compras') {
+      return dia.compras ? `Anotado: ${dia.compras} ${dia.compras === 1 ? 'producto' : 'productos'}` : 'Todavía no se anotó nada';
+    }
+    if (paso.id === 'produccion') return 'Próximamente';
+    if (!Api.sesion.esAdmin) return dia.cierre ? 'Hecho · lo hace un admin' : 'Lo hace un admin';
+    return dia.cierre ? 'Hecho' : 'Pendiente';
   }
 
   const bajoMinimo = (i) => seCuenta(i) && i.stock_minimo > 0 && i.stock_actual < i.stock_minimo;
@@ -307,14 +319,6 @@
 
   // Pendientes de compra: lo que está bajo el mínimo y lo que quedó en Bajo o Vacío.
   const porComprar = (insumos) => insumos.filter((i) => bajoMinimo(i) || nivelBajo(i));
-
-  // Pastilla de la píldora de Inventario.
-  function pendientesInventario(insumos) {
-    const revisar = insumos.filter(negativo).length;
-    const n = porComprar(insumos).filter((i) => !negativo(i)).length + revisar;
-    if (!n) return null;
-    return revisar ? `${n} por revisar` : `${n} por comprar`;
-  }
 
   // Botones Lleno · Medio · Bajo · Vacío. Siempre hay uno marcado.
   function selectorNivel(item, valor, alElegir) {
@@ -356,16 +360,16 @@
   // ---------- Hoy: menú principal y notificaciones ----------
 
   function vistaInicio(main) {
-    const menu = h('nav', { class: 'pills', 'aria-label': 'Menú principal' }, MENU.map((op) => pildoraMenu(op)));
+    const pasos = h('nav', { class: 'pills', 'aria-label': 'El día' }, PASOS.map((p) => pildoraPaso(p, '')));
     const alertas = h('div');
     main.replaceChildren(
       h('h1', { class: 'titulo' }, 'Hoy'),
       h('p', { class: 'fecha-larga' }, fechaLarga(Api.hoyLima())),
-      menu,
+      pasos,
       alertas);
-    cargarEn(alertas, Api.cargarInventario, ({ insumos }) => {
+    cargarEn(alertas, Api.cargarHoy, ({ insumos, dia }) => {
       estado.insumos = insumos;
-      menu.replaceChildren(...MENU.map((op) => pildoraMenu(op, op.id === 'inventario' && pendientesInventario(insumos))));
+      pasos.replaceChildren(...PASOS.map((p) => pildoraPaso(p, textoPaso(p, dia))));
       pintarAlertas(alertas, insumos);
     });
   }
@@ -382,7 +386,7 @@
     const fila = (href, contenido) => h('li', null, h('a', { class: 'alerta-fila', href },
       h('span', { class: 'punto', 'aria-hidden': 'true' }), h('span', null, contenido)));
     const items = [
-      ...revisar.map((i) => fila('#produccion', ['Revisar ', h('strong', null, i.nombre),
+      ...revisar.map((i) => fila('#compras', ['Revisar ', h('strong', null, i.nombre),
         `: quedó en ${mostrarTexto(i.stock_actual, i)} · falta anotar lo que entró`])),
       pc.length && fila('#por-comprar', [h('strong', null, `Pendientes de compra: ${pc.length}`), ` · ${detalle}`])
     ].filter(Boolean);
@@ -682,55 +686,84 @@
 
   // ---------- Compras: lo que entra (suma al inventario) ----------
 
-  function vistaProduccion(main) {
-    const zona = h('div', null, esqueletoFilas(7));
+  function vistaCompras(main) {
+    const zona = h('div', { class: 'hoy' }, esqueletoFilas(7));
     main.replaceChildren(
       volver('#hoy', 'Hoy'),
       h('h1', { class: 'titulo' }, 'Compras'),
-      h('p', { class: 'texto-suave' }, 'Anota lo que entró o se compró hoy. Se suma al inventario.'),
+      h('p', { class: 'texto-suave' }, 'Anota lo que entró o se compró hoy. Se suma al inventario. El precio total es opcional.'),
       zona);
-    cargarEn(zona, Api.cargarInventario, ({ insumos }) => {
-      estado.insumos = insumos;
-      pintarProduccion(zona);
-    });
+    cargarEn(zona, Api.cargarCompras, (datos) => pintarCompras(zona, datos));
   }
 
-  function pintarProduccion(zona) {
-    const insumos = (estado.insumos || []).filter(seCuenta);
+  // Lo ya anotado hoy, para no anotarlo dos veces.
+  function compradoHoy(compras) {
+    if (!compras.length) return null;
+    const conPrecio = compras.filter((c) => c.precio !== '');
+    const total = conPrecio.reduce((s, c) => s + c.precio, 0);
+    return h('section', { class: 'grupo' },
+      h('h2', { class: 'subtitulo' }, 'Ya anotado hoy'),
+      h('div', { class: 'lista-items' }, compras.map((c) => {
+        const m = cantidad(c.cantidad, c.unidad);
+        return h('div', { class: 'fila' },
+          h('span', { class: 'fila-etiqueta' }, c.nombre,
+            h('span', { class: 'fila-nota' }, sinVacios([c.hora, c.usuario, c.precio !== '' && soles(c.precio)]).join(' · '))),
+          h('span', { class: 'valor' }, '+' + m.num, h('span', { class: 'valor-unidad' }, m.unidad)));
+      })),
+      conPrecio.length > 0 && h('p', { class: 'pequeno texto-suave' },
+        `Total con precio: ${soles(total)}` + (conPrecio.length < compras.length ? ' (hay compras sin precio)' : '')));
+  }
+
+  function pintarCompras(zona, datos) {
+    estado.insumos = datos.insumos;
+    const insumos = datos.insumos.filter(seCuenta);
     if (!insumos.length) {
       zona.replaceChildren(h('p', { class: 'vacio' }, 'Todavía no hay productos que se cuenten.'));
       return;
     }
     const campos = [];
     let k = 0;
+    // Cada producto: la cantidad y, cuando se escribe algo, el precio total (opcional).
     const lista = h('div', { class: 'grupos' }, agruparPorCategoria(insumos).map(({ categoria, items }) =>
       h('section', { class: 'grupo', 'data-grupo': '' },
         h('h2', { class: 'subtitulo' }, categoria),
         h('div', { class: 'lista-items' }, items.map((insumo) => {
-          const id = `ent-${k++}`;
-          const campo = campoNumero({ etiqueta: insumo.nombre, id });
-          campos.push({ insumo, campo });
-          return h('div', { class: 'fila', 'data-buscar': textoBusqueda(insumo) },
-            h('label', { class: 'fila-etiqueta', for: id }, insumo.nombre,
-              h('span', { class: 'fila-nota' }, `hay ${mostrarTexto(insumo.stock_actual, insumo)} · en ${unidadDeIngreso(insumo)}`)),
-            campo.el);
+          const id = `com-${k++}`;
+          const precio = h('input', {
+            class: 'campo campo-precio', id: `${id}-p`, type: 'text', inputmode: 'decimal', autocomplete: 'off', enterkeyhint: 'done'
+          });
+          const filaPrecio = h('div', { class: 'fila-precio', hidden: true },
+            h('label', { class: 'fila-nota', for: `${id}-p` }, 'Precio total S/ (opcional)'), precio);
+          const campo = campoNumero({
+            etiqueta: insumo.nombre, id,
+            alCambiar: (v) => { filaPrecio.hidden = !(v > 0); }
+          });
+          campos.push({ insumo, campo, precio });
+          const en = insumo.unidad === 'g' ? 'en gramos (1 kg = 1000)' : `en ${unidadDeIngreso(insumo)}`;
+          return h('div', { class: 'compra', 'data-buscar': textoBusqueda(insumo) },
+            h('div', { class: 'fila' },
+              h('label', { class: 'fila-etiqueta', for: id }, insumo.nombre,
+                h('span', { class: 'fila-nota' }, `hay ${mostrarTexto(insumo.stock_actual, insumo)} · ${en}`)),
+              campo.el),
+            filaPrecio);
         })))));
 
-    const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar entradas');
+    const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar compras');
     async function guardar() {
-      const entradas = [];
-      for (const { insumo, campo } of campos) {
+      const compras = [];
+      for (const { insumo, campo, precio } of campos) {
         const v = campo.valor;
         if (v == null || v === 0) continue;
         if (!Number.isFinite(v) || v < 0) { aviso(`Revisa ${insumo.nombre}: tiene que ser un número.`); campo.input.focus(); return; }
-        entradas.push({ insumo_id: insumo.id, cantidad: redondear(v) });
+        const p = parseNumero(precio.value);
+        if (p != null && (!Number.isFinite(p) || p < 0)) { aviso(`Revisa el precio de ${insumo.nombre}: tiene que ser un número.`); precio.focus(); return; }
+        compras.push({ insumo_id: insumo.id, cantidad: redondear(v), precio: p == null ? '' : redondear(p) });
       }
-      if (!entradas.length) { aviso('Escribe cuánto entró de al menos un producto.'); return; }
+      if (!compras.length) { aviso('Escribe cuánto entró de al menos un producto.'); return; }
       ocupado(btn, 'Guardando…');
       try {
-        const r = await Api.registrarEntradas({ entradas });
-        estado.insumos = r.insumos;
-        pintarProduccion(zona);
+        const r = await Api.registrarCompras({ compras });
+        pintarCompras(zona, r);
         window.scrollTo(0, 0);
         aviso(r.guardadas === 1 ? 'Guardado: 1 producto' : `Guardado: ${r.guardadas} productos`);
       } catch (err) {
@@ -740,7 +773,12 @@
       }
     }
 
-    zona.replaceChildren(buscador(lista, 'buscar-produccion'), lista, h('div', { class: 'pie-accion' }, btn));
+    zona.replaceChildren(...sinVacios([
+      compradoHoy(datos.compras),
+      buscador(lista, 'buscar-compras'),
+      lista,
+      h('div', { class: 'pie-accion' }, btn)
+    ]));
   }
 
   // ---------- Ventas: platos y bebidas que salen (descuenta del inventario) ----------
@@ -1122,7 +1160,7 @@
         m.hora,
         m.usuario,
         (TIPOS_MOV.find(([v]) => v === m.tipo) || [m.tipo, m.tipo])[1],
-        m.precio !== '' && m.precio != null && `S/ ${nf.format(m.precio)}`,
+        m.precio !== '' && m.precio != null && soles(m.precio),
         m.tipo !== 'nivel' && m.nota
       ]).join(' · ');
       return h('div', { class: 'fila' },
@@ -1335,7 +1373,7 @@
     Hoja.abrir(h('div', null,
       h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Registrar'),
       h('div', { class: 'menu' }, ...sinVacios([
-        opcion('Compras', 'Lo que entró: suma al inventario', ir('#produccion')),
+        opcion('Compras', 'Lo que entró: suma al inventario', ir('#compras')),
         admin && opcion('Ventas del día', 'Platos y bebidas: descuenta del inventario', ir('#ventas')),
         admin && opcion('Nuevo producto', 'Agregar algo nuevo al inventario', () => abrirProducto(null))
       ]))));
@@ -1402,7 +1440,7 @@
     hoy: vistaInicio,
     'por-comprar': vistaPorComprar,
     inventario: vistaInventario,
-    produccion: vistaProduccion,
+    compras: vistaCompras,
     ventas: vistaVentas,
     recetas: vistaRecetas,
     mas: vistaMas,
@@ -1423,7 +1461,7 @@
     estado.vistaId++;
     const ruta = rutaActual();
     // Compras, Ventas y Pendientes de compra se abren desde Hoy, así que la barra marca Hoy.
-    const seccion = { produccion: 'hoy', ventas: 'hoy', 'por-comprar': 'hoy' }[ruta] || ruta.split('/')[0];
+    const seccion = { compras: 'hoy', ventas: 'hoy', 'por-comprar': 'hoy' }[ruta] || ruta.split('/')[0];
     document.querySelectorAll('.nav-item[data-ruta]').forEach((a) => {
       const activo = a.dataset.ruta === seccion;
       a.classList.toggle('activo', activo);

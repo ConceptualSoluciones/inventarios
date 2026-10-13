@@ -158,7 +158,9 @@ const ACCIONES = {
   cambiarNivel: cambiarNivel,
   crearProducto: crearProducto,
   guardarProducto: guardarProducto,
-  registrarEntradas: registrarEntradas,
+  cargarHoy: cargarHoy,
+  cargarCompras: cargarCompras,
+  registrarCompras: registrarCompras,
   guardarRevision: guardarRevision,
   cargarMovimientos: cargarMovimientos,
   guardarMinimos: guardarMinimos,
@@ -606,28 +608,62 @@ function movimientosDeFecha(fecha) {
     .filter((m) => m.fecha === fecha);
 }
 
+// Hoy: en qué va el día (Apertura → Producción → Cierre), según lo anotado en el día de operación.
+function cargarHoy() {
+  const fecha = hoyLima();
+  const movs = movimientosDeFecha(fecha);
+  const productos = (tipo) => movs.filter((m) => m.tipo === tipo).map((m) => m.insumo_id)
+    .filter((id, k, lista) => lista.indexOf(id) === k).length;
+  return {
+    fecha: fecha,
+    insumos: insumosActivos(),
+    dia: {
+      compras: productos('compra'),
+      produccion: productos('produccion_salida'),
+      // El cierre deja ventas (origen "venta:<fecha>"), salidas a Habemus o merma.
+      cierre: movs.some((m) => String(m.origen).indexOf('venta:') === 0 || m.tipo === 'salida_habemus' || m.tipo === 'merma')
+    }
+  };
+}
+
+// Compras de hoy (para no anotar dos veces) y lo que se puede comprar.
+function cargarCompras() {
+  const fecha = hoyLima();
+  const productos = {};
+  leerTabla('Insumos').forEach((i) => { productos[i.id] = i; });
+  const compras = movimientosDeFecha(fecha).filter((m) => m.tipo === 'compra')
+    .sort((a, b) => momentoDe(a).localeCompare(momentoDe(b)))
+    .map((m) => {
+      const i = productos[m.insumo_id] || {};
+      return {
+        insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id, unidad: i.unidad || '', cantidad: num(m.cantidad),
+        precio: vacio(m.precio) ? '' : num(m.precio), hora: m.hora, usuario: m.usuario
+      };
+    });
+  return { fecha: fecha, compras: compras, insumos: insumosActivos() };
+}
+
 // Compras: lo que entró. Suma al inventario. El precio total de cada compra es opcional.
-function registrarEntradas(d, ctx) {
-  const entradas = (Array.isArray(d.entradas) ? d.entradas : [])
+function registrarCompras(d, ctx) {
+  const compras = (Array.isArray(d.compras) ? d.compras : [])
     .map((e) => ({
       insumo_id: String(e.insumo_id || ''),
       cantidad: validarNumero(e.cantidad, 'la cantidad'),
       precio: vacio(e.precio) ? '' : validarNumero(e.precio, 'el precio')
     }))
     .filter((e) => e.cantidad > 0);
-  if (!entradas.length) throw new ErrorApp('Escribe al menos una cantidad.', 'datos');
-  const nota = String(d.nota || '').slice(0, 200);
+  if (!compras.length) throw new ErrorApp('Escribe al menos una cantidad.', 'datos');
 
   return conBloqueo(() => {
     const ids = insumosActivos().filter(seCuenta).map((i) => i.id);
-    entradas.forEach((e) => {
+    compras.forEach((e) => {
       if (ids.indexOf(e.insumo_id) < 0) throw new ErrorApp('No se encontró uno de los productos. Recarga la página.', 'datos');
     });
     const hora = horaLima();
-    agregarFilas('Movimientos', entradas.map((e) =>
-      movimiento(e.insumo_id, 'compra', e.cantidad, ctx, { hora: hora, precio: e.precio, nota: nota })));
+    agregarFilas('Movimientos', compras.map((e) =>
+      movimiento(e.insumo_id, 'compra', e.cantidad, ctx, { hora: hora, precio: e.precio })));
     recalcularStocks();
-    return { guardadas: entradas.length, insumos: insumosActivos() };
+    return Object.assign({ guardadas: compras.length }, cargarCompras());
   });
 }
 
