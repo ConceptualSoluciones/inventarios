@@ -43,20 +43,25 @@ const SEMILLA = {
     ['sal-pesto', 'Pesto de albahaca', 'Salsas y aderezos', 'ojo', '', ''],
     ['sal-glaseado', 'Glaseado Bravo', 'Salsas y aderezos', 'ojo', '', ''],
     ['sal-crema-aji', 'Crema de ají amarillo', 'Salsas y aderezos', 'ojo', '', ''],
+    ['sal-anticuchero', 'Aderezo anticuchero', 'Salsas y aderezos', 'ojo', '', ''],
 
-    // Verduras y chalaquita al ojo; los demás complementos por porción (propuesta, por revisar).
+    // Verduras, chalaquita y sarsa al ojo; los demás complementos por porción.
     ['ins-lechuga', 'Lechuga', 'Verduras', 'ojo', '', ''],
     ['ins-arugula', 'Arúgula', 'Verduras', 'ojo', '', ''],
+    ['ins-cebollita', 'Cebollita', 'Verduras', 'ojo', '', ''],
     ['comp-chalaquita', 'Chalaquita encurtida', 'Complementos', 'ojo', '', ''],
     ['comp-aros', 'Aros de cebolla', 'Complementos', 'presentacion', 'porción', ''],
-    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'presentacion', 'porción', ''], // D2: pendiente si se quita
+    ['comp-sarsa', 'Sarsa criolla', 'Complementos', 'ojo', '', ''],
     ['comp-quesos', 'Mix quesos Artesano', 'Complementos', 'presentacion', 'porción', ''],
 
-    // Lácteos y secos (propuesta, por revisar).
+    // Lácteos y secos.
     ['ins-paria', 'Queso Paria', 'Lácteos', 'gramos', 'g', ''],
     ['ins-huevo', 'Huevo', 'Secos', 'unidad', 'unidad', ''],
-    ['ins-harina', 'Harina', 'Secos', 'gramos', 'g', ''],
-    ['ins-panko', 'Panko', 'Secos', 'gramos', 'g', ''],
+    ['ins-harina', 'Harina', 'Secos', 'ojo', '', ''],
+    ['ins-panko', 'Panko', 'Secos', 'ojo', '', ''],
+
+    // Camote crudo: llega comprado y en Producción se porciona y congela (sale Camote frito). Falta saber cómo se mide.
+    ['ins-camote-crudo', 'Camote crudo', 'Solo producción', 'presentacion', 'porción', ''],
 
     // Bebidas.
     ['beb-chicha', 'Chicha', 'Bebidas', 'unidad', 'unidad', ''],
@@ -67,11 +72,21 @@ const SEMILLA = {
   soloProduccion: [
     'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido', 'Ajinomoto', 'Sal', 'Pimienta negra', 'Comino', 'Laurel',
     'Canela china', 'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
-    'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate', 'Camote',
+    'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate',
     'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
   ],
   // Solo producción, pero crudo comprado: por gramos. [nombre]
   soloProduccionGramos: ['Pollo deshuesado'],
+
+  // Alias por id.
+  alias: {
+    'comp-sarsa': 'aderezo criollo, salsa criolla',
+    'comp-camote-frito': 'camote congelado'
+  },
+
+  // Lo que la dueña ya confirmó (12/10/2026): entra sin la marca "por revisar".
+  revisados: ['sal-anticuchero', 'ins-cebollita', 'comp-sarsa', 'ins-harina', 'ins-panko', 'comp-camote-frito',
+    'ins-huevo', 'comp-aros', 'comp-quesos', 'ins-paria', 'ins-pollo-deshuesado'],
 
   // [id, nombre, grupo, estado, [[insumo_id, cantidad], ...]] — lo que lleva UN producto vendido.
   recetas: [
@@ -110,9 +125,9 @@ function cargarSemilla() {
   const producto = (id, nombre, categoria, medicion, unidad, nota) => {
     const ojo = medicion === 'ojo';
     return {
-      id: id, nombre: nombre, alias: '', categoria: categoria, medicion: medicion, unidad: ojo ? '' : unidad,
+      id: id, nombre: nombre, alias: SEMILLA.alias[id] || '', categoria: categoria, medicion: medicion, unidad: ojo ? '' : unidad,
       stock_actual: ojo ? '' : 0, stock_minimo: ojo ? '' : 0, estado_actual: ojo ? NIVEL_INICIAL : '',
-      nota: nota || '', revisar: 'sí', activo: true
+      nota: nota || '', revisar: SEMILLA.revisados.indexOf(id) >= 0 ? '' : 'sí', activo: true
     };
   };
   SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, nota]) => {
