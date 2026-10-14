@@ -9,8 +9,9 @@
   // ---------- Hoy: el día en tres pasos + lo que falta hacer ----------
 
   // Apertura → Producción → Cierre. El cierre lo hace un admin: cocina lo ve, pero no lo abre.
+  // Las compras, por ahora, también son de admin: cocina no ve ese paso.
   const PASOS = [
-    { id: 'compras', nombre: 'Compras', etiqueta: '1 · apertura', color: 'navy', ilustracion: 'ventas', href: '#compras' },
+    { id: 'compras', nombre: 'Compras', etiqueta: '1 · apertura', color: 'navy', ilustracion: 'ventas', href: '#compras', oculto: true },
     { id: 'produccion', nombre: 'Producción', etiqueta: '2 · en cocina', color: 'olive', ilustracion: 'produccion', href: '#produccion' },
     { id: 'cierre', nombre: 'Cierre', etiqueta: '3 · en la noche', color: 'sand', ilustracion: 'inventario', href: '#ventas', soloAdmin: true }
   ];
@@ -39,7 +40,9 @@
   // ---------- Hoy: menú principal y notificaciones ----------
 
   function vistaInicio(main) {
-    const pasos = h('nav', { class: 'pills', 'aria-label': 'El día' }, PASOS.map((p) => pildoraPaso(p, '')));
+    // oculto: solo admin lo ve (soloAdmin: lo ven todos, pero solo admin lo abre).
+    const visibles = PASOS.filter((p) => !p.oculto || Api.sesion.esAdmin);
+    const pasos = h('nav', { class: 'pills', 'aria-label': 'El día' }, visibles.map((p) => pildoraPaso(p, '')));
     const alertas = h('div');
     main.replaceChildren(
       h('h1', { class: 'titulo' }, 'Hoy'),
@@ -48,7 +51,7 @@
       alertas);
     cargarEn(alertas, Api.cargarHoy, ({ insumos, dia }) => {
       estado.insumos = insumos;
-      pasos.replaceChildren(...PASOS.map((p) => pildoraPaso(p, textoPaso(p, dia))));
+      pasos.replaceChildren(...visibles.map((p) => pildoraPaso(p, textoPaso(p, dia))));
       pintarAlertas(alertas, insumos);
     });
   }
@@ -64,8 +67,9 @@
     ]).join(' · ');
     const fila = (href, contenido) => h('li', null, h('a', { class: 'alerta-fila', href },
       h('span', { class: 'punto', 'aria-hidden': 'true' }), h('span', null, contenido)));
+    // Las compras las anota un admin: a cocina el aviso la lleva al Inventario.
     const items = [
-      ...revisar.map((i) => fila('#compras', ['Revisar ', h('strong', null, i.nombre),
+      ...revisar.map((i) => fila(Api.sesion.esAdmin ? '#compras' : '#inventario', ['Revisar ', h('strong', null, i.nombre),
         `: quedó en ${mostrarTexto(i.stock_actual, i)} · falta anotar lo que entró`])),
       pc.length && fila('#por-comprar', [h('strong', null, `Pendientes de compra: ${pc.length}`), ` · ${detalle}`])
     ].filter(Boolean);

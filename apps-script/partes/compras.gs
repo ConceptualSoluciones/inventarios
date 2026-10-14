@@ -1,8 +1,12 @@
 // ---------------------------------------------------------------------------
-// Compras: lo que se compró (apertura del día)
+// Compras: lo que se compró (apertura del día). Por ahora solo las anota un admin.
 // ---------------------------------------------------------------------------
 
-// Compras de hoy (para no anotar dos veces) y lo que se puede comprar.
+// Una compra anulada no se borra: su columna origen pasa a "anulada:<id del movimiento que la revierte>".
+// Ese movimiento (tipo compra_anulada) resta la misma cantidad y guarda el motivo, quién y cuándo.
+function compraAnulada(m) { return String(m.origen).indexOf('anulada:') === 0; }
+
+// Compras de hoy (para no anotar dos veces) y lo que se puede comprar. Las anuladas vienen marcadas.
 function cargarCompras() {
   const fecha = hoyLima();
   const productos = {};
@@ -12,8 +16,8 @@ function cargarCompras() {
     .map((m) => {
       const i = productos[m.insumo_id] || {};
       return {
-        insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id, unidad: i.unidad || '', cantidad: num(m.cantidad),
-        precio: vacio(m.precio) ? '' : num(m.precio), hora: m.hora, usuario: m.usuario
+        id: m.id, insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id, unidad: i.unidad || '', cantidad: num(m.cantidad),
+        precio: vacio(m.precio) ? '' : num(m.precio), hora: m.hora, usuario: m.usuario, anulada: compraAnulada(m)
       };
     });
   return { fecha: fecha, compras: compras, insumos: insumosActivos() };
@@ -49,8 +53,30 @@ function registrarCompras(d, ctx) {
   });
 }
 
+// Anula una compra (de cualquier día): no borra su fila. Agrega hoy un movimiento que resta la misma cantidad,
+// con el motivo, y marca la compra como anulada. Para corregir una cantidad: anular y volver a anotar.
+// Lo que va al ojo no cambia de nivel (no se sabe cómo estaba antes de la compra).
+function anularCompra(d, ctx) {
+  const id = String(d.id || '');
+  const motivo = String(d.nota || '').trim().slice(0, 200);
+  if (!motivo) throw new ErrorApp('Escribe el motivo de la anulación.', 'datos');
+  return conBloqueo(() => {
+    const compra = leerTabla('Movimientos').find((m) => m.id === id);
+    if (!compra || compra.tipo !== 'compra') throw new ErrorApp('No se encontró la compra. Recarga la página.', 'datos');
+    if (compraAnulada(compra)) throw new ErrorApp('Esa compra ya estaba anulada.', 'datos');
+    const reversa = movimiento(compra.insumo_id, 'compra_anulada', Math.abs(num(compra.cantidad)), ctx, {
+      origen: 'anula:' + compra.id, nota: motivo
+    });
+    agregarFilas('Movimientos', [reversa]);
+    hoja('Movimientos').getRange(compra._fila, HOJAS.Movimientos.indexOf('origen') + 1).setValue('anulada:' + reversa.id);
+    recalcularStocks();
+    return { id: reversa.id, insumos: insumosActivos() };
+  });
+}
+
 // Acciones que atiende esta parte (ver acciones() en base.gs).
 var ACCIONES_COMPRAS = {
-  cargarCompras: { fn: cargarCompras },
-  registrarCompras: { fn: registrarCompras }
+  cargarCompras: { fn: cargarCompras, soloAdmin: true },
+  registrarCompras: { fn: registrarCompras, soloAdmin: true },
+  anularCompra: { fn: anularCompra, soloAdmin: true }
 };

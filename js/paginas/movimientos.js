@@ -8,7 +8,8 @@
 
   // ---------- Movimientos: historial ----------
 
-  const TIPOS_MOV = [['compra', 'Compra'], ['produccion_usado', 'Usado en producción'], ['produccion_salida', 'Producido'],
+  const TIPOS_MOV = [['compra', 'Compra'], ['compra_anulada', 'Compra anulada'], ['produccion_usado', 'Usado en producción'],
+    ['produccion_salida', 'Producido'],
     ['venta', 'Venta'], ['salida_habemus', 'Salida a Habemus'], ['merma', 'Merma'], ['ajuste_conteo', 'Ajuste de conteo'],
     ['nivel', 'Nivel']];
   const filtroMov = { fecha: null, insumo_id: '', tipo: '', todo: false };
@@ -53,6 +54,7 @@
         m.usuario,
         (TIPOS_MOV.find(([v]) => v === m.tipo) || [m.tipo, m.tipo])[1],
         m.precio !== '' && m.precio != null && soles(m.precio),
+        m.tipo === 'compra' && String(m.origen).indexOf('anulada:') === 0 && 'anulada',
         m.tipo !== 'nivel' && m.nota
       ]).join(' · ');
       return h('div', { class: 'fila' },

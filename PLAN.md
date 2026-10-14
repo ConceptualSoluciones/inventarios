@@ -203,6 +203,8 @@ Menú corto: "Lo que entró" (Producción), "Ventas del día" y "Nueva casilla".
 
 Al final de cada fase, detenerse y mostrar lo hecho antes de seguir.
 
+**Pendiente (parte futura, todavía no se hace):** página de **gastos**, solo admin, con gráficas de lo gastado en Compras por día, por producto y por categoría. Sale de los precios de las compras (columna `precio` de Movimientos), sin contar las compras anuladas.
+
 **Publicación del Apps Script (va en el README):** aplicación web que se ejecuta como el dueño, con acceso para "Cualquier usuario". Cada cambio en Code.gs se publica como versión nueva de la MISMA implementación (Administrar implementaciones → editar → Nueva versión), para que la URL no cambie.
 
 ## Fuera de alcance

@@ -52,10 +52,14 @@
     ]));
   }
 
-  // Crear (item = null) o editar un producto.
-  function abrirProducto(item) {
+  // Crear (item = null) o editar un producto. Al crear desde otra página (Compras), opciones puede traer
+  // el nombre y el origen ya puestos, y alGuardar(insumos, id): esa página sigue en lo suyo en vez de recargarse.
+  function abrirProducto(item, opciones = {}) {
     const nuevo = !item;
-    const p = item || { nombre: '', alias: '', categoria: '', medicion: 'unidad', unidad: '', stock_minimo: 0, nota: '' };
+    const p = item || {
+      nombre: opciones.nombre || '', alias: '', categoria: '', medicion: 'unidad', unidad: '', stock_minimo: 0, nota: '',
+      origen: opciones.origen
+    };
     const categorias = [...new Set([...ORDEN_CATEGORIAS, ...(estado.insumos || []).map((i) => i.categoria)])].filter(Boolean);
     const input = (id, valor, attrs) => {
       const el = h('input', { class: 'campo', id, autocomplete: 'off', ...attrs
@@ -78,6 +82,7 @@
       h('option', { value: 'comprado' }, 'Se compra (aparece en Compras)'),
       h('option', { value: 'hecho_en_casa' }, 'Se hace en casa (sale de Producción)'));
     origen.value = p.origen || 'comprado';
+    if (nuevo && opciones.origen) origen.dataset.elegido = '1';
     const unidad = input('pr-unidad', p.medicion === 'unidad' || p.medicion === 'presentacion' ? p.unidad : '',
       { maxlength: 20, placeholder: 'unidad, porción, jarra, pan…'
   });
@@ -147,7 +152,8 @@
   });
         estado.insumos = r.insumos;
         Hoja.cerrar();
-        render();
+        if (nuevo && opciones.alGuardar) opciones.alGuardar(r.insumos, r.id);
+        else render();
         aviso(nuevo ? `Producto creado: ${datos.nombre}` : `Guardado: ${datos.nombre}`);
       } catch (err) {
         aviso(mensajeError(err, MSJ_GUARDAR));

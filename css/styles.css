@@ -245,6 +245,20 @@ button { cursor: pointer; }
 .mov-valor { flex: none; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 .bloque-ajuste { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 
+/* Inventario: tocar un producto abre su historial */
+.tocable { cursor: pointer; }
+.historial-mov { border-bottom: 1px solid var(--line); }
+.historial-mov > .fila { border-bottom: 0; }
+.anular { display: flex; flex-direction: column; gap: 12px; padding: 0 0 12px; }
+.anular > .btn-chico { align-self: flex-end; }
+/* Compra anulada: tachada, pero se sigue leyendo */
+.fila--anulada .fila-etiqueta, .fila--anulada .valor, .fila--anulada .mov-valor { color: var(--ink-soft); text-decoration: line-through; }
+.fila--anulada .fila-nota { text-decoration: none; }
+
+/* Compras: total gastado del día, al final */
+.total-dia { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; border-top: 2px solid var(--ink); }
+.total-dia h2 { margin: 0; }
+
 .plegable > summary { display: list-item; min-height: 44px; padding: 12px 0; cursor: pointer; }
 
 /* ---------- píldoras ---------- */

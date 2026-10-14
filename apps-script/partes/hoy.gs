@@ -11,7 +11,7 @@ function cargarHoy() {
     fecha: fecha,
     insumos: insumosActivos(),
     dia: {
-      compras: distintos(movs.filter((m) => m.tipo === 'compra')),
+      compras: distintos(movs.filter((m) => m.tipo === 'compra' && !compraAnulada(m))),
       // Lo que salió de Producción (lo preparado al ojo deja un movimiento "nivel" con origen de producción).
       produccion: distintos(movs.filter((m) => esProduccion(m) && m.tipo !== 'produccion_usado')),
       // El cierre deja ventas (origen "venta:<fecha>"), salidas a Habemus o merma.

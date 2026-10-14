@@ -158,6 +158,7 @@
     cargarHoy: () => llamar('cargarHoy'),
     cargarCompras: () => llamar('cargarCompras'),
     registrarCompras: (d) => llamar('registrarCompras', d),
+    anularCompra: (d) => llamar('anularCompra', d),
     cargarProduccion: () => llamar('cargarProduccion'),
     registrarProduccion: (d) => llamar('registrarProduccion', d),
     guardarRevision: (d) => llamar('guardarRevision', d),

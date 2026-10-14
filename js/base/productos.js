@@ -33,7 +33,7 @@
 
   // En el orden de la cocina; lo que no está aquí va después, en orden alfabético.
   const ORDEN_CATEGORIAS = ['Panes', 'Carnes y proteínas', 'Salsas y aderezos', 'Verduras', 'Complementos',
-    'Lácteos', 'Secos', 'Congelados', 'Bebidas', 'Solo producción'];
+    'Lácteos', 'Secos', 'Congelados', 'Bebidas', 'Descartables', 'Limpieza', 'Solo producción'];
 
   // Agrupa por categoría (en el orden de la cocina) y ordena alfabéticamente dentro de cada grupo.
   function agruparPorCategoria(insumos) {

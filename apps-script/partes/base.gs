@@ -20,9 +20,9 @@
  * setup(), empezarDeCero(), cargarSemilla(), instalarRespaldo() y agregarPersona() solo corren a mano
  * (editor o menú del Sheet): ningún pedido de la web puede crear, vaciar ni rehacer hojas, ni dar altas.
  *
- * Roles: "admin" puede todo. "cocina" solo anota compras y producción del día; no puede el cierre (ventas,
- * salidas a Habemus, merma, niveles al ojo), la Revisión inicial, los conteos, ni editar productos o recetas
- * (lo valida el servidor, no solo la pantalla).
+ * Roles: "admin" puede todo. "cocina" solo anota la producción del día; no puede las compras (por ahora),
+ * el cierre (ventas, salidas a Habemus, merma, niveles al ojo), la Revisión inicial, los conteos, ni editar
+ * productos o recetas (lo valida el servidor, no solo la pantalla).
  *
  * Cuatro formas de medir (columna medicion):
  *   - unidad:       panes, huevos, palta, gaseosas… (la unidad se puede nombrar: "unidad", "pan", "servicio").
@@ -66,8 +66,10 @@ const GRUPOS_RECETA = ['cultos', 'criollos', 'papas', 'bebidas'];
 const ESTADOS_RECETA = ['vigente', 'provisional', 'sin_ficha'];
 
 // Cómo suma cada tipo de movimiento al stock. "ajuste_conteo" ya viene con su signo (+ o −). "nivel" no suma.
+// "compra_anulada" revierte una compra (ver anularCompra en compras.gs).
 const SIGNO_MOVIMIENTO = {
-  compra: 1, produccion_salida: 1, produccion_usado: -1, venta: -1, salida_habemus: -1, merma: -1, ajuste_conteo: 1
+  compra: 1, compra_anulada: -1, produccion_salida: 1, produccion_usado: -1, venta: -1, salida_habemus: -1, merma: -1,
+  ajuste_conteo: 1
 };
 
 // Lo que tiene stock: todo menos lo que va al ojo.

@@ -153,10 +153,63 @@ async function correr() {
   av = await guardarHoja($$('#hoja button').find((b) => /Confirmar ventas/.test(b.textContent)));
   ok(/Ventas guardadas/.test(av), 'ventas: ' + av);
 
-  // Compras (cocina también puede, se prueba abajo)
+  // Compras (solo admin)
+  ok(await ir('#compras'), 'Compras carga');
+  ok(!$$('#vista .compra').some((c) => /Asado|Panceta/.test(c.textContent)) && $$('#vista .compra').some((c) => /Queso Paria/.test(c.textContent)) && $$('#vista .compra').some((c) => /Panko/.test(c.textContent) && /va al ojo/.test(c.textContent)) && !$$('#vista .compra').some((c) => /Golf/.test(c.textContent)), 'Compras: lo comprado (también al ojo), sin lo hecho en casa');
+  ok(/Total gastado hoy/.test($('#vista').textContent) && /S\/\s0[.,]00/.test($('#total-dia').textContent), 'total del día en S/ 0.00');
+  const filaPan = $$('#vista .fila').find((f) => /Pan cubano/.test(f.textContent));
+  const compraPan = filaPan.closest('.compra');
+  ok(compraPan.querySelector('.fila-precio').hidden, 'precio oculto sin cantidad');
+  escribir(filaPan.querySelector('input'), '10');
+  ok(!compraPan.querySelector('.fila-precio').hidden, 'precio aparece al escribir cantidad');
+  escribir(compraPan.querySelector('.campo-precio'), '15,50');
+  escribir($$('#vista .fila').find((f) => /^Tomate/.test(f.textContent)).querySelector('input'), '3');
+  // Lo escrito no se pierde al crear un producto desde el buscador.
+  escribir($$('#vista .fila').find((f) => /^Palta/.test(f.textContent)).querySelector('input'), '2');
+  escribir($('#buscar-compras'), 'servilletas');
+  ok(!$('#vista .no-esta').hidden, 'buscador sin resultados: "¿No está? Crear producto"');
+  $('#vista .no-esta button').click();
+  await esperar(() => $('#pr-nombre'));
+  ok($('#pr-nombre').value === 'Servilletas' && $('#pr-origen').value === 'comprado' && [...$('#pr-categoria').options].some((o) => o.value === 'Limpieza'), 'ficha nueva: nombre del buscador, comprado y categoría Limpieza');
+  $('#pr-categoria').value = 'Descartables';
+  escribir($('#pr-medicion'), 'unidad');
+  ok($('#pr-origen').value === 'comprado', 'sigue comprado al cambiar la forma de medir');
+  av = await guardarHoja($('#hoja form button[type=submit]'));
+  ok(/Producto creado: Servilletas/.test(av) && W.location.hash === '#compras', 'crear servilletas y seguir en Compras: ' + av);
+  ok($('#buscar-compras').value === 'Servilletas' && $$('#vista .compra').filter((c) => !c.hidden).length === 1 && /Servilletas/.test($$('#vista .compra').find((c) => !c.hidden).textContent), 'Compras muestra Servilletas');
+  ok($$('#vista .fila').find((f) => /^Palta/.test(f.textContent)).querySelector('input').value === '2' && $$('#vista .compra').find((c) => /Pan cubano/.test(c.textContent)).querySelector('.campo-precio').value === '15,50', 'lo escrito antes sigue ahí');
+  escribir($$('#vista .fila').find((f) => /^Palta/.test(f.textContent)).querySelector('input'), '');
+  $$('#vista button').find((b) => /Guardar compras/.test(b.textContent)).click();
+  await esperar(() => /Guardado/.test(textoAviso()), 8000);
+  ok(/Guardado: 2 productos/.test(textoAviso()), 'admin compra: ' + textoAviso());
+  await esperar(() => /Ya anotado hoy/.test($('#vista').textContent));
+  ok(/S\/\s15[.,]50/.test($('#vista').textContent) && /sin precio/.test($('#vista').textContent), 'ya anotado hoy: con precio y sin precio');
+  ok(/S\/\s15[.,]50/.test($('#total-dia').textContent) && /1 compra no tiene precio/.test($('#vista').textContent), 'total S/ 15.50 y 1 compra sin precio');
+  await ir('#hoy');
+  ok(/Anotado: 2 productos/.test($('#vista').textContent), 'Hoy: compras anotadas');
+
+  // Anular la compra del tomate desde Inventario (historial del producto)
+  await ir('#inventario');
+  $$('.grafica-fila').find((f) => /Tomate/.test(f.textContent)).click();
+  await esperar(() => $('#hoja .historial-mov'));
+  ok(/Compra/.test($('#hoja').textContent) && /sin precio/.test($('#hoja').textContent), 'historial del tomate con su compra');
+  $$('#hoja button').find((b) => b.textContent === 'Anular').click();
+  $$('#hoja button').find((b) => /Anular compra/.test(b.textContent)).click();
+  ok(/motivo/.test(textoAviso()), 'anular pide el motivo: ' + textoAviso());
+  escribir($('#hoja .anular input'), 'Era otro proveedor');
+  $$('#hoja button').find((b) => /Anular compra/.test(b.textContent)).click();
+  await esperar(() => /Compra anulada/.test(textoAviso()), 8000);
+  await esperar(() => $('#hoja .fila--anulada'));
+  ok(/Compra anulada: Tomate/.test(textoAviso()) && /Era otro proveedor/.test($('#hoja').textContent) && $('#hoja .fila--anulada') && !$$('#hoja button').some((b) => b.textContent === 'Anular'), 'compra anulada con su motivo, ya no se puede anular');
+  $('#hoja-tirador').click();
+  await dormir(200);
+  await ir('#compras');
+  ok($('#vista .fila--anulada') && /anulada/.test($('#vista .fila--anulada').textContent) && /S\/\s15[.,]50/.test($('#total-dia').textContent) && !/no tiene precio/.test($('#vista').textContent), 'Compras: tomate tachado, no cuenta en el total ni como sin precio');
+  if (fin === 'compras') return;
+
   ok(await ir('#mas/movimientos'), 'Movimientos carga');
   const textoMov = $('#vista').textContent;
-  ok(/Venta/.test(textoMov) && /Ajuste de conteo/.test(textoMov) && /Nivel/.test(textoMov), 'movimientos con tipos nuevos');
+  ok(/Venta/.test(textoMov) && /Ajuste de conteo/.test(textoMov) && /Nivel/.test(textoMov) && /Compra anulada/.test(textoMov), 'movimientos con tipos nuevos');
   ok(await ir('#mas/ajustes'), 'Ajustes carga');
   ok(!/Lotes|Forma de medir/.test($('#vista').textContent), 'ajustes sin lotes ni forma de medir');
   if (fin === 'admin') return;
@@ -171,25 +224,22 @@ async function correr() {
   await ir('#inventario');
   ok($$('.fila-estado .estados').length === 0 && $$('.nivel-texto').length > 0, 'cocina ve niveles sin botones');
   ok(!$$('#vista button').some((b) => /Nuevo producto/.test(b.textContent)), 'cocina no ve "+ Nuevo producto"');
+  $$('.grafica-fila').find((f) => /Tomate/.test(f.textContent)).click();
+  await esperar(() => $('#hoja .historial-mov'));
+  ok(/Compra anulada/.test($('#hoja').textContent) && !$$('#hoja button').some((b) => /Anular/.test(b.textContent)), 'cocina ve el historial, sin "Anular"');
+  $('#hoja-tirador').click();
+  await dormir(200);
   await ir('#ventas');
   ok(/Solo admin/.test($('#vista').textContent), 'cocina: Ventas es solo admin');
+  await ir('#compras');
+  ok(/Solo admin/.test($('#vista').textContent), 'cocina: Compras es solo admin');
   await ir('#hoy');
-  ok(/Hecho · lo hace un admin/.test($('#vista').textContent) && $$('a.pill').length === 2, 'cocina: Cierre se ve pero no se abre');
-  ok(await ir('#compras'), 'Compras carga');
-  ok(!$$('#vista .compra').some((c) => /Asado|Panceta/.test(c.textContent)) && $$('#vista .compra').some((c) => /Queso Paria/.test(c.textContent)) && $$('#vista .compra').some((c) => /Harina/.test(c.textContent) && /va al ojo/.test(c.textContent)) && !$$('#vista .compra').some((c) => /Golf/.test(c.textContent)), 'Compras: lo comprado (también al ojo), sin lo hecho en casa');
-  const filaPan = $$('#vista .fila').find((f) => /Pan cubano/.test(f.textContent));
-  const compraPan = filaPan.closest('.compra');
-  ok(compraPan.querySelector('.fila-precio').hidden, 'precio oculto sin cantidad');
-  escribir(filaPan.querySelector('input'), '10');
-  ok(!compraPan.querySelector('.fila-precio').hidden, 'precio aparece al escribir cantidad');
-  escribir(compraPan.querySelector('.campo-precio'), '15,50');
-  $$('#vista button').find((b) => /Guardar compras/.test(b.textContent)).click();
-  await esperar(() => /Guardado/.test(textoAviso()), 8000);
-  ok(/Guardado: 1 producto/.test(textoAviso()), 'cocina compra: ' + textoAviso());
-  await esperar(() => /Ya anotado hoy/.test($('#vista').textContent));
-  ok(/Ya anotado hoy/.test($('#vista').textContent) && /S\/\s15[.,]50/.test($('#vista').textContent), 'lista de compras de hoy con precio');
-  await ir('#hoy');
-  ok(/Anotado: 1 producto/.test($('#vista').textContent), 'Hoy: compras anotadas');
+  ok(/Hecho · lo hace un admin/.test($('#vista').textContent) && $$('.pill').length === 2 && $$('a.pill').map((a) => a.getAttribute('href')).join() === '#produccion', 'cocina: no ve Compras; Cierre se ve pero no se abre');
+  $('#btn-registrar').click();
+  await esperar(() => $('#hoja').classList.contains('abierta'));
+  ok(!/Compras/.test($('#hoja').textContent) && /Producción/.test($('#hoja').textContent), 'cocina: el botón + no tiene Compras');
+  $('#hoja-tirador').click();
+  await dormir(200);
   if (fin === 'cocina') return;
   // Producción (cocina)
   ok(await ir('#produccion'), 'Producción carga');
@@ -214,7 +264,6 @@ async function correr() {
   await ir('#hoy');
   ok(/Salió: 1 producto/.test($('#vista').textContent), 'Hoy: producción anotada');
   if (fin === 'produccion') { await ir('#produccion'); return; }
-  if (fin === 'compras') { await ir('#compras'); escribir($$('#vista .compra input')[0], '3'); return; }
 }
 
 frame.addEventListener('load', async () => {

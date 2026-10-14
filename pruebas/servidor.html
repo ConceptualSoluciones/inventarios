@@ -18,10 +18,10 @@ try {
   const p = (id) => inv().find((i) => i.id === id);
   const hoy = hoyLima();
 
-  // Acciones: las 20 de siempre, 9 solo para admin, juntadas de las listas ACCIONES_<PARTE>.
+  // Acciones: 21, de ellas 12 solo para admin (las compras también), juntadas de las listas ACCIONES_<PARTE>.
   const lasAcciones = acciones();
-  ok(Object.keys(lasAcciones).length === 20 && Object.keys(lasAcciones).filter((k) => lasAcciones[k].soloAdmin).length === 9,
-    'acciones: 20, de ellas 9 solo admin (' + Object.keys(lasAcciones).length + ')');
+  ok(Object.keys(lasAcciones).length === 21 && Object.keys(lasAcciones).filter((k) => lasAcciones[k].soloAdmin).length === 12,
+    'acciones: 21, de ellas 12 solo admin (' + Object.keys(lasAcciones).length + ')');
 
   let ins = inv();
   ok(ins.length === 71, 'semilla: 71 productos (' + ins.length + ')');
@@ -69,16 +69,40 @@ try {
   ok(llamar(coc, 'guardarVentas', { fecha: hoy, ventas: [] }).code === 'permiso', 'cocina no guarda ventas');
   ok(llamar(coc, 'guardarRevision', { conteos: [] }).code === 'permiso', 'cocina no hace revisión');
   ok(llamar(coc, 'cargarHoy').data.dia.compras === 0, 'hoy: sin compras todavía');
-  r = llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'ins-palta', cantidad: 4, precio: 12.5 }, { insumo_id: 'ins-tomate', cantidad: 3 }] });
-  ok(r.ok && p('ins-palta').stock_actual === 10 && r.data.compras.length === 2 && r.data.compras[0].precio === 12.5 && r.data.compras[1].precio === '', 'cocina compra 4 paltas (S/ 12.5) y 3 tomates sin precio ' + (r.error || ''));
+  // Compras: por ahora solo admin.
+  ok(llamar(coc, 'cargarCompras').code === 'permiso', 'cocina no abre Compras');
+  ok(llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'ins-palta', cantidad: 1 }] }).code === 'permiso', 'cocina no anota compras');
+  r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'ins-palta', cantidad: 4, precio: 12.5 }, { insumo_id: 'ins-tomate', cantidad: 3 }] });
+  ok(r.ok && p('ins-palta').stock_actual === 10 && r.data.compras.length === 2 && r.data.compras[0].precio === 12.5 && r.data.compras[1].precio === '' && r.data.compras.every((c) => c.id && !c.anulada), 'admin compra 4 paltas (S/ 12.5) y 3 tomates sin precio ' + (r.error || ''));
   let dia = llamar(coc, 'cargarHoy').data.dia;
   ok(dia.compras === 2 && !dia.cierre, 'hoy: 2 productos comprados, cierre pendiente');
-  ok(llamar(coc, 'cargarCompras').data.compras.length === 2, 'compras de hoy se listan');
-  ok(llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'sal-golf', cantidad: 1 }] }).code === 'datos', 'no se compra algo al ojo');
-  r = llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'prep-asado', cantidad: 1 }] });
+  ok(llamar(adm, 'cargarCompras').data.compras.length === 2, 'compras de hoy se listan');
+  ok(llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'sal-golf', cantidad: 1 }] }).code === 'datos', 'no se compra algo al ojo');
+  r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'prep-asado', cantidad: 1 }] });
   ok(r.code === 'datos' && /no se compra/.test(r.error), 'no se compra lo porcionado: ' + r.error);
+
+  // Anular una compra: no se borra, se revierte y queda marcada. Pide motivo; solo admin.
+  r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'ins-tomate', cantidad: 5, precio: 9 }] });
+  const compraTomate = r.data.compras.find((c) => c.insumo_id === 'ins-tomate' && c.cantidad === 5);
+  ok(p('ins-tomate').stock_actual === 8 && llamar(adm, 'cargarHoy').data.dia.compras === 2, 'tomate: 3 + 5 = 8');
+  ok(llamar(coc, 'anularCompra', { id: compraTomate.id, nota: 'x' }).code === 'permiso', 'cocina no anula compras');
+  r = llamar(adm, 'anularCompra', { id: compraTomate.id, nota: '  ' });
+  ok(!r.ok && /motivo/.test(r.error), 'anular sin motivo no se puede: ' + r.error);
+  r = llamar(adm, 'anularCompra', { id: compraTomate.id, nota: 'Se anotó dos veces' });
+  ok(r.ok && p('ins-tomate').stock_actual === 3, 'anular: el tomate vuelve a 3 (' + p('ins-tomate').stock_actual + ') ' + (r.error || ''));
+  let compras = llamar(adm, 'cargarCompras').data.compras;
+  ok(compras.length === 3 && compras.find((c) => c.id === compraTomate.id).anulada && compras.filter((c) => c.anulada).length === 1, 'la compra sigue en la lista, marcada anulada');
+  const hist = llamar(adm, 'cargarMovimientos', { insumo_id: 'ins-tomate' }).data.movimientos;
+  const reversa = hist.find((m) => m.tipo === 'compra_anulada');
+  ok(reversa && reversa.cantidad === -5 && reversa.nota === 'Se anotó dos veces' && reversa.usuario === 'Ana (demo)' && reversa.origen === 'anula:' + compraTomate.id && hist.find((m) => m.id === compraTomate.id).origen === 'anulada:' + reversa.id, 'historial: la reversa resta 5 con motivo y quién; la compra queda marcada');
+  ok(llamar(adm, 'anularCompra', { id: compraTomate.id, nota: 'otra vez' }).code === 'datos' && p('ins-tomate').stock_actual === 3, 'no se anula dos veces');
+  ok(llamar(adm, 'anularCompra', { id: reversa.id, nota: 'x' }).code === 'datos', 'solo se anulan compras');
+  r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'ins-pan-cubano', cantidad: 10, precio: 15 }] });
+  r = llamar(adm, 'anularCompra', { id: r.data.compras.find((c) => c.insumo_id === 'ins-pan-cubano').id, nota: 'no llegó' });
+  ok(r.ok && llamar(adm, 'cargarHoy').data.dia.compras === 2, 'hoy: un producto con su única compra anulada no cuenta');
+
   llamar(adm, 'guardarRevision', { niveles: [{ insumo_id: 'ins-panko', estado: 'vacío' }] });
-  r = llamar(coc, 'registrarCompras', { compras: [{ insumo_id: 'ins-panko', cantidad: 2, precio: 8 }] });
+  r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'ins-panko', cantidad: 2, precio: 8 }] });
   ok(r.ok && p('ins-panko').estado_actual === 'lleno' && r.data.compras.some((c) => c.insumo_id === 'ins-panko' && c.cantidad === 2 && c.precio === 8), 'comprar panko (al ojo): cantidad, precio y queda lleno ' + (r.error || ''));
 
   // Ventas
@@ -97,7 +121,7 @@ try {
 
   // Producción (cocina puede)
   const carneId = 'ins-res-cruda';
-  llamar(coc, 'registrarCompras', { compras: [{ insumo_id: carneId, cantidad: 3000, precio: 90 }] });
+  llamar(adm, 'registrarCompras', { compras: [{ insumo_id: carneId, cantidad: 3000, precio: 90 }] });
   const antesCarne = p(carneId).stock_actual;
   llamar(adm, 'guardarRevision', { niveles: [{ insumo_id: 'sal-golf', estado: 'vacío' }] });
   r = llamar(coc, 'registrarProduccion', { usados: [{ insumo_id: carneId, cantidad: 3000 }, { insumo_id: 'ins-huevo', cantidad: 2 }], salidas: [{ insumo_id: 'prep-asado', cantidad: 15 }, { insumo_id: 'sal-golf' }] });
@@ -118,7 +142,7 @@ try {
   // Movimientos
   const movs = llamar(adm, 'cargarMovimientos', { fecha: hoy }).data.movimientos;
   const tipos = [...new Set(movs.map((m) => m.tipo))].sort().join(',');
-  ok(tipos === 'ajuste_conteo,compra,nivel,produccion_salida,produccion_usado,venta', 'tipos de movimiento: ' + tipos);
+  ok(tipos === 'ajuste_conteo,compra,compra_anulada,nivel,produccion_salida,produccion_usado,venta', 'tipos de movimiento: ' + tipos);
   ok(movs.some((m) => m.tipo === 'compra' && m.precio === 12.5), 'compra guarda el precio');
   ok(cantidadTexto(2500, 'g') === '2.5 kg' && cantidadTexto(1, 'jarra') === '1 jarra' && cantidadTexto(3, 'porción') === '3 porciones', 'textos de cantidad');
 } catch (e) { fallas++; log('ERROR ' + (e.stack || e)); }

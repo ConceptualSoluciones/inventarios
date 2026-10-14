@@ -24,7 +24,7 @@
     Hoja.abrir(h('div', null,
       h('h2', { class: 'hoja-titulo', id: 'hoja-titulo' }, 'Registrar'),
       h('div', { class: 'menu' }, ...sinVacios([
-        opcion('Compras', 'Lo que entró: suma al inventario', ir('#compras')),
+        admin && opcion('Compras', 'Lo que entró: suma al inventario', ir('#compras')),
         opcion('Producción', 'Lo que usé y lo que salió', ir('#produccion')),
         admin && opcion('Ventas del día', 'Platos y bebidas: descuenta del inventario', ir('#ventas')),
         admin && opcion('Nuevo producto', 'Agregar algo nuevo al inventario', () => abrirProducto(null))
