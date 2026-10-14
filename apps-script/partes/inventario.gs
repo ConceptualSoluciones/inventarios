@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 function cargarInventario() {
-  return { insumos: insumosActivos() };
+  return { insumos: insumosActivos(), categorias: categoriasActivas() };
 }
 
 // Acciones que atiende esta parte (ver acciones() en base.gs).

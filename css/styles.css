@@ -255,6 +255,9 @@ button { cursor: pointer; }
 .fila--anulada .fila-etiqueta, .fila--anulada .valor, .fila--anulada .mov-valor { color: var(--ink-soft); text-decoration: line-through; }
 .fila--anulada .fila-nota { text-decoration: none; }
 
+/* Compras: botón "Editar lista" arriba a la derecha */
+.acciones-lista { display: flex; justify-content: flex-end; }
+
 /* Compras: total gastado del día, al final */
 .total-dia { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; border-top: 2px solid var(--ink); }
 .total-dia h2 { margin: 0; }

@@ -10,6 +10,7 @@
  *
  * Formas de medir: unidad, gramos, presentacion (porción, jarra…) y ojo (lleno · medio · bajo · vacío).
  * Origen: comprado (aparece en Compras, aunque vaya al ojo) o hecho_en_casa (sale de Producción).
+ * Unidad de compra: unidad lo que se cuenta por unidad (panes, palta, tomate, huevo); todo lo demás se compra en gramos.
  * Cada proteína tiene su crudo (comprado, por gramos) y su porcionado (hecho en casa, por porción).
  */
 
@@ -79,13 +80,14 @@ const SEMILLA = {
     ['beb-maracuya', 'Maracuyá', 'Bebidas', 'unidad', 'unidad', '', EN_CASA]
   ],
 
-  // Insumos solo de producción, comprados: por porción hasta que se decida unidad o gramos. Su id sale del nombre.
+  // Insumos y condimentos (antes "Solo producción"), comprados en gramos; en el inventario, por porción hasta que se
+  // decida otra cosa. Su id sale del nombre.
   soloProduccion: [
     'Mayonesa', 'Kétchup', 'Mostaza', 'Humo líquido',
     'Rocoto', 'Ají amarillo', 'Ají limo', 'Ají panca', 'Ajo', 'Huacatay', 'Culantro', 'Cebollín',
     'Albahaca', 'Aceite de oliva', 'Aceite', 'Almendra', 'Cebolla roja', 'Limón', 'Pasta de tomate'
   ],
-  // Condimentos de solo producción, comprados: al ojo. Su id sale del nombre.
+  // Condimentos, comprados en gramos: al ojo en el inventario. Su id sale del nombre.
   soloProduccionOjo: ['Sal', 'Pimienta negra', 'Comino', 'Ajinomoto', 'Laurel', 'Canela china',
     'Sazonador Doña Gusta carne', 'Sazonador Doña Gusta pollo/gallina'
   ],
@@ -139,7 +141,8 @@ function cargarSemilla() {
     return {
       id: id, nombre: nombre, alias: SEMILLA.alias[id] || '', categoria: categoria, medicion: medicion, unidad: ojo ? '' : unidad,
       stock_actual: ojo ? '' : 0, stock_minimo: ojo ? '' : 0, estado_actual: ojo ? NIVEL_INICIAL : '',
-      nota: nota || '', revisar: 'sí', activo: true, origen: origen
+      nota: nota || '', revisar: 'sí', activo: true, origen: origen,
+      unidad_compra: medicion === 'unidad' ? 'unidad' : 'gramos'
     };
   };
   SEMILLA.insumos.forEach(([id, nombre, categoria, medicion, unidad, nota, origen]) => {
@@ -147,13 +150,14 @@ function cargarSemilla() {
   });
   SEMILLA.soloProduccion.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'presentacion', 'porción', '', COMPRADO));
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Insumos y condimentos', 'presentacion', 'porción', '', COMPRADO));
   });
   SEMILLA.soloProduccionOjo.forEach((nombre) => {
     const id = 'ins-' + slug(nombre);
-    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Solo producción', 'ojo', '', '', COMPRADO));
+    if (!existentes[id]) nuevos.push(producto(id, nombre, 'Insumos y condimentos', 'ojo', '', '', COMPRADO));
   });
   agregarFilas('Insumos', nuevos);
+  completarCategorias();
 
   // Recetas: solo se cargan los ingredientes de las recetas que recién se crean.
   const recetasExistentes = {};

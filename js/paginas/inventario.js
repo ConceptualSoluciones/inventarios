@@ -31,10 +31,10 @@
 
     const ojo = agruparPorCategoria(insumos.filter(alOjo)).map(({ categoria, items }) => {
       const filas = items.map((i) => tocable(filaNivelVer(i), i));
-      if (categoria !== 'Solo producción') return grupoInsumos(categoria, filas);
+      if (categoria !== 'Insumos y condimentos') return grupoInsumos(categoria, filas);
       // Es la lista más larga y se usa menos: va plegada.
       return h('details', { class: 'grupo plegable' },
-        h('summary', { class: 'subtitulo' }, `Solo producción (${items.length})`),
+        h('summary', { class: 'subtitulo' }, `Insumos y condimentos (${items.length})`),
         h('div', { class: 'lista-items' }, filas));
     });
 

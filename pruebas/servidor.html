@@ -18,10 +18,10 @@ try {
   const p = (id) => inv().find((i) => i.id === id);
   const hoy = hoyLima();
 
-  // Acciones: 21, de ellas 12 solo para admin (las compras también), juntadas de las listas ACCIONES_<PARTE>.
+  // Acciones: 25, de ellas 16 solo para admin (las compras y su lista también), juntadas de las listas ACCIONES_<PARTE>.
   const lasAcciones = acciones();
-  ok(Object.keys(lasAcciones).length === 21 && Object.keys(lasAcciones).filter((k) => lasAcciones[k].soloAdmin).length === 12,
-    'acciones: 21, de ellas 12 solo admin (' + Object.keys(lasAcciones).length + ')');
+  ok(Object.keys(lasAcciones).length === 25 && Object.keys(lasAcciones).filter((k) => lasAcciones[k].soloAdmin).length === 16,
+    'acciones: 25, de ellas 16 solo admin (' + Object.keys(lasAcciones).length + ')');
 
   let ins = inv();
   ok(ins.length === 71, 'semilla: 71 productos (' + ins.length + ')');
@@ -30,6 +30,13 @@ try {
   ok(p('ins-chancho-crudo').alias === 'chancho, cerdo' && p('ins-res-cruda').medicion === 'gramos' && p('prep-panceta').alias === '' && p('ins-camote-crudo').medicion === 'gramos' && p('ins-harina').origen === 'comprado' && p('sal-golf').origen === 'hecho_en_casa', 'crudos, alias y orígenes');
   ok(p('sal-golf').medicion === 'ojo' && p('sal-golf').estado_actual === 'lleno', 'salsas al ojo en lleno');
   ok(p('ins-paria').medicion === 'gramos' && p('ins-paria').unidad === 'g', 'queso paria en gramos');
+  // Unidad de compra: por unidad lo que se cuenta por unidad; todo lo demás en gramos (también al ojo y porciones).
+  ok(['ins-pan-cubano', 'ins-palta', 'ins-tomate', 'ins-huevo'].every((id) => p(id).unidad_compra === 'unidad') &&
+    ['ins-res-cruda', 'ins-paria', 'ins-papas', 'ins-camote-crudo', 'ins-lechuga', 'ins-harina', 'ins-panko', 'ins-mayonesa', 'ins-ajo', 'ins-pimienta-negra'].every((id) => p(id).unidad_compra === 'gramos'),
+    'unidad de compra según la dueña');
+  let cats = llamar(adm, 'cargarInventario').data.categorias;
+  ok(cats[0].nombre === 'Panes' && cats[0].emoji === '🥖' && ['Insumos y condimentos', 'Descartables', 'Limpieza'].every((n) => cats.some((c) => c.nombre === n)) && !cats.some((c) => c.nombre === 'Solo producción') && p('ins-mayonesa').categoria === 'Insumos y condimentos',
+    'categorías con emoji; "Solo producción" ahora es "Insumos y condimentos"');
   const rec = llamar(adm, 'cargarRecetas').data.recetas;
   ok(rec.length === 15 && rec.every((r) => r.revisar), 'semilla: 15 recetas por revisar');
 
@@ -51,7 +58,7 @@ try {
   ok(!r.ok && /Carne de res cruda/.test(r.error), 'el asado no puede tener el alias "carne": ' + r.error);
   r = llamar(adm, 'guardarProducto', { id: 'ins-palta', nombre: 'Palta', categoria: 'Verduras', medicion: 'ojo' });
   ok(!r.ok && /receta/.test(r.error), 'palta (en recetas) no pasa a al ojo: ' + r.error);
-  r = llamar(adm, 'guardarProducto', { id: 'ins-mayonesa', nombre: 'Mayonesa', categoria: 'Solo producción', medicion: 'gramos' });
+  r = llamar(adm, 'guardarProducto', { id: 'ins-mayonesa', nombre: 'Mayonesa', categoria: 'Insumos y condimentos', medicion: 'gramos' });
   ok(r.ok && p('ins-mayonesa').medicion === 'gramos' && p('ins-mayonesa').revisar, 'mayonesa a gramos, sigue por revisar');
   r = llamar(adm, 'guardarProducto', { id: 'ins-palta', desactivar: true });
   ok(!r.ok, 'no se desactiva lo que está en una receta');
@@ -105,6 +112,35 @@ try {
   r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'ins-panko', cantidad: 2, precio: 8 }] });
   ok(r.ok && p('ins-panko').estado_actual === 'lleno' && r.data.compras.some((c) => c.insumo_id === 'ins-panko' && c.cantidad === 2 && c.precio === 8), 'comprar panko (al ojo): cantidad, precio y queda lleno ' + (r.error || ''));
 
+  // Unidad de compra distinta de cómo se cuenta: la compra guarda el gasto y no suma; las porciones salen de Producción.
+  r = llamar(adm, 'registrarCompras', { compras: [{ insumo_id: 'ins-papas', cantidad: 2000, precio: 30 }, { insumo_id: 'ins-ajo', cantidad: 250, precio: 4 }] });
+  ok(r.ok && p('ins-papas').stock_actual === 0 && p('ins-ajo').stock_actual === 0 && r.data.compras.filter((c) => c.insumo_id === 'ins-papas' || c.insumo_id === 'ins-ajo').every((c) => c.unidad === 'g'), 'papas y ajo: se compran en g y no suman porciones ' + (r.error || ''));
+
+  // La lista de Compras: categorías y productos (solo admin)
+  ok(llamar(coc, 'crearCategoria', { nombre: 'Postres', emoji: '🍰' }).code === 'permiso', 'cocina no crea categorías');
+  r = llamar(adm, 'crearCategoria', { nombre: 'Postres', emoji: '🍰' });
+  ok(r.ok && r.data.categorias[r.data.categorias.length - 1].nombre === 'Postres' && r.data.categorias.some((c) => c.emoji === '🍰'), 'crear categoría Postres 🍰 al final ' + (r.error || ''));
+  ok(llamar(adm, 'crearCategoria', { nombre: 'postres' }).code === 'datos', 'no se repite una categoría');
+  r = llamar(adm, 'crearProductoCompra', { nombre: 'Vasos', categoria: 'Descartables', unidad_compra: 'unidad' });
+  const vasos = r.ok && p(r.data.id);
+  ok(vasos && vasos.origen === 'comprado' && vasos.medicion === 'unidad' && vasos.unidad_compra === 'unidad' && vasos.revisar && vasos.categoria === 'Descartables', 'crear Vasos por unidad: comprado y por revisar ' + (r.error || ''));
+  ok(llamar(adm, 'crearProductoCompra', { nombre: 'Bandejas', categoria: 'Descartables', unidad_compra: 'cajas' }).code === 'datos', 'unidad de compra inválida');
+  llamar(adm, 'registrarCompras', { compras: [{ insumo_id: vasos.id, cantidad: 50, precio: 20 }] });
+  ok(p(vasos.id).stock_actual === 50, 'comprar 50 vasos suma 50');
+  r = llamar(adm, 'editarProductoCompra', { id: vasos.id, nombre: 'Vasos 12 oz', unidad_compra: 'gramos' });
+  ok(r.ok && p(vasos.id).nombre === 'Vasos 12 oz' && p(vasos.id).unidad_compra === 'gramos' && p(vasos.id).stock_actual === 0, 'editar nombre y unidad: comprado en g ya no suma unidades ' + (r.error || ''));
+  llamar(adm, 'editarProductoCompra', { id: vasos.id, nombre: 'Vasos 12 oz', unidad_compra: 'unidad' });
+  ok(p(vasos.id).stock_actual === 50, 'de vuelta por unidad: 50');
+  ok(llamar(adm, 'editarProductoCompra', { id: vasos.id, nombre: 'Palta', unidad_compra: 'unidad' }).code === 'datos', 'el nombre no se repite');
+  r = llamar(adm, 'quitarCategoria', { nombre: 'Descartables' });
+  ok(!r.ok && /tiene productos/.test(r.error), 'no se quita una categoría con productos: ' + r.error);
+  ok(llamar(adm, 'guardarProducto', { id: vasos.id, desactivar: true }).ok && !p(vasos.id), 'quitar los vasos');
+  ok(llamar(adm, 'cargarMovimientos', { insumo_id: vasos.id }).data.movimientos.length === 1, 'su historial se guarda');
+  r = llamar(adm, 'quitarCategoria', { nombre: 'Descartables' });
+  ok(r.ok && !r.data.categorias.some((c) => c.nombre === 'Descartables'), 'quitar la categoría vacía ' + (r.error || ''));
+  r = llamar(adm, 'crearCategoria', { nombre: 'Descartables', emoji: '🥤' });
+  ok(r.ok && r.data.categorias.find((c) => c.nombre === 'Descartables').emoji === '🥤', 'una categoría quitada se puede volver a crear');
+
   // Ventas
   r = llamar(adm, 'guardarVentas', { fecha: hoy, ventas: [{ receta_id: 'rec-invicto', cantidad: 3 }, { receta_id: 'rec-kids', cantidad: 1 }] });
   ok(r.ok && p('ins-palta').stock_actual === 8.5, 'venta 3 Invicto → palta 8.5 (' + p('ins-palta').stock_actual + ') ' + (r.error || ''));
@@ -139,12 +175,33 @@ try {
   const tiposProd = llamar(adm, 'cargarMovimientos', { fecha: hoy }).data.movimientos.filter((m) => /^produccion:/.test(m.origen)).map((m) => m.tipo).sort().join(',');
   ok(tiposProd === 'nivel,produccion_salida,produccion_usado,produccion_usado', 'movimientos de producción: ' + tiposProd);
 
+  // Lo comprado que se porciona sale de Producción
+  r = llamar(coc, 'registrarProduccion', { salidas: [{ insumo_id: 'ins-papas', cantidad: 10 }] });
+  ok(r.ok && p('ins-papas').stock_actual === 10, 'Producción: salen 10 porciones de papas compradas ' + (r.error || ''));
+  ok(llamar(adm, 'cargarMovimientos', { insumo_id: 'ins-papas' }).data.movimientos.find((m) => m.tipo === 'compra').unidad === 'g', 'historial: la compra de papas en g');
+
   // Movimientos
   const movs = llamar(adm, 'cargarMovimientos', { fecha: hoy }).data.movimientos;
   const tipos = [...new Set(movs.map((m) => m.tipo))].sort().join(',');
   ok(tipos === 'ajuste_conteo,compra,compra_anulada,nivel,produccion_salida,produccion_usado,venta', 'tipos de movimiento: ' + tipos);
   ok(movs.some((m) => m.tipo === 'compra' && m.precio === 12.5), 'compra guarda el precio');
   ok(cantidadTexto(2500, 'g') === '2.5 kg' && cantidadTexto(1, 'jarra') === '1 jarra' && cantidadTexto(3, 'porción') === '3 porciones', 'textos de cantidad');
+
+  // Migración: un Sheet de la versión anterior (sin unidad_compra, sin Categorias, con "Solo producción")
+  // se actualiza solo en el siguiente pedido, sin perder nada.
+  const libro = SantoDemo.libro;
+  const insumosHoja = libro.getSheetByName('Insumos');
+  const colCat = HOJAS.Insumos.indexOf('categoria');
+  insumosHoja.datos.forEach((fila) => {
+    fila.length = HOJAS.Insumos.length - 1;
+    if (fila[colCat] === 'Insumos y condimentos') fila[colCat] = 'Solo producción';
+  });
+  libro.deleteSheet(libro.getSheetByName('Categorias'));
+  r = llamar(adm, 'cargarInventario');
+  ok(r.ok && r.data.insumos.find((i) => i.id === 'ins-ajo').categoria === 'Insumos y condimentos' && r.data.insumos.find((i) => i.id === 'ins-ajo').unidad_compra === 'gramos' && r.data.insumos.find((i) => i.id === 'ins-palta').unidad_compra === 'unidad', 'migración: unidad de compra y categoría renombrada ' + (r.error || ''));
+  ok(r.ok && r.data.categorias[0].emoji === '🥖' && r.data.categorias.some((c) => c.nombre === 'Limpieza') && !r.data.categorias.some((c) => c.nombre === 'Solo producción'), 'migración: pestaña Categorias creada');
+  ok(r.ok && r.data.insumos.find((i) => i.id === 'ins-papas').stock_actual === 10 && llamar(adm, 'cargarMovimientos', { insumo_id: 'ins-papas' }).data.movimientos.length === 2, 'migración: no se pierde stock ni historial');
+  ok(insumosHoja.getRange(1, HOJAS.Insumos.length).getValues()[0][0] === 'unidad_compra' && llamar(adm, 'cargarHoy').ok, 'migración: una sola vez, y todo sigue funcionando');
 } catch (e) { fallas++; log('ERROR ' + (e.stack || e)); }
 log('\nFALLAS: ' + fallas);
 document.getElementById('out').textContent = out.join('\n');

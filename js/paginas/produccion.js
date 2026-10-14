@@ -4,7 +4,7 @@
   const {
     MSJ_GUARDAR, estado, h, sinVacios, cantidad, cantidadTexto, redondear, ocupado, libre,
     mensajeError, aviso, Hoja, campoNumero, esqueletoFilas, cargarEn, volver, seCuenta, alOjo,
-    seCompra, seHaceEnCasa, textoNivel, mostrarTexto, unidadDeIngreso, agruparPorCategoria,
+    seCompra, seHaceEnCasa, sumaAlComprar, textoNivel, mostrarTexto, unidadDeIngreso, agruparPorCategoria,
     textoBusqueda, buscador
   } = Santo;
 
@@ -91,7 +91,9 @@
     }, '+ Agregar lo que usé');
     const btnSalida = h('button', {
       type: 'button', class: 'btn btn-secundario btn-ancho',
-      onclick: () => elegirProducto('¿Qué salió?', datos.insumos.filter(seHaceEnCasa), (i) => agregar(listaSalidas, salidas, i))
+      // Sale lo hecho en casa y lo comprado que se porciona (Papas congeladas: se compran en gramos, salen porciones).
+      onclick: () => elegirProducto('¿Qué salió?', datos.insumos.filter((i) => seHaceEnCasa(i) || (seCompra(i) && seCuenta(i) && !sumaAlComprar(i))),
+        (i) => agregar(listaSalidas, salidas, i))
     }, '+ Agregar lo que salió');
 
     const btn = h('button', { type: 'button', class: 'btn btn-primario', onclick: guardar }, 'Guardar producción');

@@ -61,9 +61,12 @@
     }).format(new Date(Date.now() - horaCorte() * 60 * 60 * 1000));
   }
   // Lo que todo pedido exitoso trae además de los datos: quién es y la hora de corte.
+  // Las categorías (en orden, con emoji) llegan con Hoy, Inventario y Compras y se recuerdan para ordenar las listas.
+  let categorias = null;
   function recibir(json) {
     sesion.guardarQuien(json.quien);
     if (Number.isInteger(json.corte)) escribir('santo.corte', String(json.corte));
+    if (json.data && Array.isArray(json.data.categorias)) categorias = json.data.categorias;
   }
   // Con PIN solo se ingresa; todo lo demás va con el token.
   const cuerpo = (accion, datos, pin) =>
@@ -140,6 +143,7 @@
 
   window.Api = {
     ApiError, sesion, hoyLima, modoDemo, llamar,
+    get categorias() { return categorias; },
     // Ingresa con el PIN y deja guardado el token de sesión (el PIN no se guarda).
     ingresar: async (pin) => {
       const r = await llamar('verificarPin', {}, pin);
@@ -159,6 +163,10 @@
     cargarCompras: () => llamar('cargarCompras'),
     registrarCompras: (d) => llamar('registrarCompras', d),
     anularCompra: (d) => llamar('anularCompra', d),
+    crearCategoria: (d) => llamar('crearCategoria', d),
+    quitarCategoria: (d) => llamar('quitarCategoria', d),
+    crearProductoCompra: (d) => llamar('crearProductoCompra', d),
+    editarProductoCompra: (d) => llamar('editarProductoCompra', d),
     cargarProduccion: () => llamar('cargarProduccion'),
     registrarProduccion: (d) => llamar('registrarProduccion', d),
     guardarRevision: (d) => llamar('guardarRevision', d),

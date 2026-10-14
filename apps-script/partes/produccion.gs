@@ -4,7 +4,11 @@
 // ---------------------------------------------------------------------------
 
 // Lo que sale de Producción es lo hecho en casa (porciones, jarras, salsas…); lo que va al ojo queda en "lleno".
-// Lo que se usa es lo comprado que se cuenta (carne cruda, huevos…).
+// También sale lo comprado que se cuenta en otra unidad que la de compra (Papas congeladas: se compran en gramos y
+// entran al inventario en porciones aquí). Lo que se usa es lo comprado que se cuenta (carne cruda, huevos…).
+function saleDeProduccion(p) {
+  return origenDe(p) === 'hecho_en_casa' || (p.medicion !== 'ojo' && !sumaAlComprar(p));
+}
 
 // Las producciones de hoy, cada una con lo que se usó y lo que salió.
 function cargarProduccion() {
@@ -50,7 +54,7 @@ function registrarProduccion(d, ctx) {
     });
     const salen = salidas.filter((e) => {
       const p = producto(e);
-      if (origenDe(p) !== 'hecho_en_casa') throw new ErrorApp(p.nombre + ' no sale de Producción: se compra.', 'datos');
+      if (!saleDeProduccion(p)) throw new ErrorApp(p.nombre + ' no sale de Producción: se compra.', 'datos');
       return p.medicion === 'ojo' || e.cantidad > 0;
     });
     if (!salen.length) throw new ErrorApp('Escribe lo que salió de la producción.', 'datos');

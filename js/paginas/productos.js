@@ -4,7 +4,7 @@
   const {
     MSJ_GUARDAR, CHEVRON, estado, h, sinVacios, cantidad, ocupado, libre, mensajeError, aviso, Hoja,
     campoNumero, esqueletoFilas, cargarEn, volver, render, FORMAS_MEDIR, seCuenta, alOjo, mostrarTexto,
-    unidadDeIngreso, ORDEN_CATEGORIAS, agruparPorCategoria, textoBusqueda, buscador, pastillaRevisar
+    unidadDeIngreso, nombresCategorias, UNIDADES_COMPRA, agruparPorCategoria, textoBusqueda, buscador, pastillaRevisar
   } = Santo;
 
   // ---------- Productos (solo admin): nombre, alias, categoría, forma de medir, unidad y mínimo ----------
@@ -52,15 +52,11 @@
     ]));
   }
 
-  // Crear (item = null) o editar un producto. Al crear desde otra página (Compras), opciones puede traer
-  // el nombre y el origen ya puestos, y alGuardar(insumos, id): esa página sigue en lo suyo en vez de recargarse.
-  function abrirProducto(item, opciones = {}) {
+  // Crear (item = null) o editar un producto.
+  function abrirProducto(item) {
     const nuevo = !item;
-    const p = item || {
-      nombre: opciones.nombre || '', alias: '', categoria: '', medicion: 'unidad', unidad: '', stock_minimo: 0, nota: '',
-      origen: opciones.origen
-    };
-    const categorias = [...new Set([...ORDEN_CATEGORIAS, ...(estado.insumos || []).map((i) => i.categoria)])].filter(Boolean);
+    const p = item || { nombre: '', alias: '', categoria: '', medicion: 'unidad', unidad: '', stock_minimo: 0, nota: '' };
+    const categorias = [...new Set([...nombresCategorias(), ...(estado.insumos || []).map((i) => i.categoria)])].filter(Boolean);
     const input = (id, valor, attrs) => {
       const el = h('input', { class: 'campo', id, autocomplete: 'off', ...attrs
   });
@@ -82,7 +78,8 @@
       h('option', { value: 'comprado' }, 'Se compra (aparece en Compras)'),
       h('option', { value: 'hecho_en_casa' }, 'Se hace en casa (sale de Producción)'));
     origen.value = p.origen || 'comprado';
-    if (nuevo && opciones.origen) origen.dataset.elegido = '1';
+    const unidadCompra = h('select', { class: 'campo', id: 'pr-unidad-compra' }, UNIDADES_COMPRA.map(([v, t]) => h('option', { value: v }, t)));
+    unidadCompra.value = p.unidad_compra || (p.medicion === 'unidad' ? 'unidad' : 'gramos');
     const unidad = input('pr-unidad', p.medicion === 'unidad' || p.medicion === 'presentacion' ? p.unidad : '',
       { maxlength: 20, placeholder: 'unidad, porción, jarra, pan…'
   });
@@ -104,6 +101,7 @@
       h('label', { class: 'etiqueta-campo', for: id }, texto, ayuda && ` · ${ayuda}`), el);
     const grupoOtra = campo('pr-otra', 'Categoría nueva', otraCategoria);
     const grupoUnidad = campo('pr-unidad', 'Unidad', unidad, 'en singular');
+    const grupoCompra = campo('pr-unidad-compra', 'Se compra en', unidadCompra);
     const filaMinimo = h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'pr-minimo' }, 'Mínimo', notaMinimo), fMinimo.el);
     const filaStock = nuevo && h('div', { class: 'fila' }, h('label', { class: 'fila-etiqueta', for: 'pr-stock' }, 'Cuánto hay ahora', notaStock), fStock.el);
 
@@ -112,6 +110,7 @@
     function actualizar() {
       const cuenta = medicion.value !== 'ojo';
       grupoOtra.hidden = categoria.value !== '';
+      grupoCompra.hidden = origen.value !== 'comprado';
       grupoUnidad.hidden = !cuenta || medicion.value === 'gramos';
       filaMinimo.hidden = !cuenta;
       if (filaStock) filaStock.hidden = !cuenta;
@@ -120,12 +119,16 @@
       notaMinimo.textContent = `${en} · avisa cuando baja de aquí`;
       notaStock.textContent = en;
     }
-    [categoria, medicion].forEach((el) => el.addEventListener('change', actualizar));
+    [categoria, medicion, origen].forEach((el) => el.addEventListener('change', actualizar));
     // En un producto nuevo, lo porcionado se hace en casa y lo demás se compra, hasta que se elija a mano.
     origen.addEventListener('change', () => { origen.dataset.elegido = '1';
   });
+    unidadCompra.addEventListener('change', () => { unidadCompra.dataset.elegido = '1'; });
     medicion.addEventListener('change', () => {
       if (nuevo && !origen.dataset.elegido) origen.value = medicion.value === 'presentacion' ? 'hecho_en_casa' : 'comprado';
+      // En un producto nuevo, lo que se cuenta por unidad se compra por unidad y lo demás en gramos.
+      if (nuevo && !unidadCompra.dataset.elegido) unidadCompra.value = medicion.value === 'unidad' ? 'unidad' : 'gramos';
+      actualizar();
     });
     unidad.addEventListener('input', actualizar);
     actualizar();
@@ -142,7 +145,8 @@
       }
       const datos = {
         nombre: nombre.value.trim(), alias: alias.value, categoria: cat, medicion: medicion.value,
-        unidad: unidadElegida(), stock_minimo: fMinimo.valor || 0, nota: nota.value.trim(), origen: origen.value
+        unidad: unidadElegida(), stock_minimo: fMinimo.valor || 0, nota: nota.value.trim(), origen: origen.value,
+        unidad_compra: unidadCompra.value
       };
       ocupado(btn, 'Guardando…');
       try {
@@ -152,8 +156,7 @@
   });
         estado.insumos = r.insumos;
         Hoja.cerrar();
-        if (nuevo && opciones.alGuardar) opciones.alGuardar(r.insumos, r.id);
-        else render();
+        render();
         aviso(nuevo ? `Producto creado: ${datos.nombre}` : `Guardado: ${datos.nombre}`);
       } catch (err) {
         aviso(mensajeError(err, MSJ_GUARDAR));
@@ -194,6 +197,7 @@
       campo('pr-categoria', 'Categoría', categoria),
       grupoOtra,
       campo('pr-origen', '¿Se compra o se hace en casa?', origen),
+      grupoCompra,
       campo('pr-medicion', 'Cómo se mide', medicion),
       notaCambio,
       grupoUnidad,

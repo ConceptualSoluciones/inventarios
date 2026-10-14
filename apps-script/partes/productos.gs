@@ -21,7 +21,8 @@ function datosProducto(d) {
       : String(d.unidad || '').trim().toLowerCase().slice(0, 20) || UNIDAD_POR_DEFECTO[medicion],
     stock_minimo: ojo || vacio(d.stock_minimo) ? 0 : validarNumero(d.stock_minimo, 'el mínimo'),
     nota: String(d.nota || '').trim().slice(0, 80),
-    origen: ORIGENES.indexOf(d.origen) >= 0 ? d.origen : origenDe({ medicion: medicion })
+    origen: ORIGENES.indexOf(d.origen) >= 0 ? d.origen : origenDe({ medicion: medicion }),
+    unidad_compra: unidadCompraDe({ medicion: medicion, unidad_compra: d.unidad_compra })
   };
 }
 
@@ -46,8 +47,9 @@ function crearProducto(d, ctx) {
     const id = nuevoId('prod');
     agregarFilas('Insumos', [Object.assign({ id: id }, p, {
       stock_actual: cuenta ? 0 : '', stock_minimo: cuenta ? p.stock_minimo : '',
-      estado_actual: cuenta ? '' : NIVEL_INICIAL, revisar: '', activo: true
+      estado_actual: cuenta ? '' : NIVEL_INICIAL, revisar: d.porRevisar ? 'sí' : '', activo: true
     })]);
+    completarCategorias();
     // El stock nunca se escribe directo: lo que ya hay entra como un ajuste de conteo.
     if (stock > 0) {
       agregarFilas('Movimientos', [movimiento(id, 'ajuste_conteo', stock, ctx, { nota: 'Stock inicial' })]);
@@ -85,9 +87,10 @@ function guardarProducto(d) {
       nombre: p.nombre, alias: p.alias, categoria: p.categoria, medicion: p.medicion, unidad: p.unidad,
       stock_minimo: ojo ? '' : p.stock_minimo,
       estado_actual: !ojo ? '' : NIVELES.indexOf(i.estado_actual) >= 0 ? i.estado_actual : NIVEL_INICIAL,
-      nota: p.nota, origen: p.origen,
+      nota: p.nota, origen: p.origen, unidad_compra: p.unidad_compra,
       revisar: d.revisado ? '' : i.revisar
     });
+    completarCategorias();
     recalcularStocks(); // si cambió el mínimo o la forma de medir
     return { insumos: insumosActivos() };
   });

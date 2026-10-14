@@ -25,7 +25,7 @@ function cargarMovimientos(d) {
       const i = productos[m.insumo_id] || {};
       return {
         id: m.id, fecha: m.fecha, hora: m.hora, insumo_id: m.insumo_id, nombre: i.nombre || m.insumo_id,
-        unidad: i.unidad || '', tipo: m.tipo, cantidad: vacio(m.cantidad) ? '' : valorMovimiento(m),
+        unidad: esCompra(m) ? unidadDeCompra(i) : i.unidad || '', tipo: m.tipo, cantidad: vacio(m.cantidad) ? '' : valorMovimiento(m),
         precio: vacio(m.precio) ? '' : num(m.precio), origen: m.origen, nota: m.nota, usuario: m.usuario
       };
     }),

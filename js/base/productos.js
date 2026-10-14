@@ -16,6 +16,12 @@
   // Origen: lo comprado aparece en Compras (aunque vaya al ojo); lo hecho en casa sale de Producción.
   const seCompra = (i) => i.origen === 'comprado';
   const seHaceEnCasa = (i) => i.origen === 'hecho_en_casa';
+  // Unidad de compra (gramos o unidad). La compra suma al inventario solo si se cuenta en esa misma unidad;
+  // si no (al ojo, porciones), guarda el gasto y lo porcionado entra por Producción. Igual que en el servidor.
+  const sumaAlComprar = (i) => (i.medicion === 'gramos' && i.unidad_compra === 'gramos') ||
+    (i.medicion === 'unidad' && i.unidad_compra === 'unidad');
+  const UNIDADES_COMPRA = [['gramos', 'Gramos (g)'], ['unidad', 'Unidad (u)']];
+  const unidadCompraCorta = (i) => (i.unidad_compra === 'unidad' ? 'u' : 'g');
   const NIVELES = [['lleno', 'Lleno'], ['medio', 'Medio'], ['bajo', 'Bajo'], ['vacío', 'Vacío']];
   const NIVELES_ALERTA = ['bajo', 'vacío'];
   // Mismos colores que el mensaje de WhatsApp.
@@ -31,16 +37,19 @@
   }
   const unidadDeIngreso = (item) => (item.unidad === 'g' ? 'gramos' : unidadPlural(item.unidad));
 
-  // En el orden de la cocina; lo que no está aquí va después, en orden alfabético.
+  // En el orden de la cocina; lo que no está aquí va después, en orden alfabético. El orden real viene del Sheet
+  // (pestaña Categorias, ver Api.categorias); esta lista es la de respaldo mientras no llega.
   const ORDEN_CATEGORIAS = ['Panes', 'Carnes y proteínas', 'Salsas y aderezos', 'Verduras', 'Complementos',
-    'Lácteos', 'Secos', 'Congelados', 'Bebidas', 'Descartables', 'Limpieza', 'Solo producción'];
+    'Lácteos', 'Secos', 'Congelados', 'Bebidas', 'Insumos y condimentos', 'Descartables', 'Limpieza'];
+  const nombresCategorias = () => (Api.categorias ? Api.categorias.map((c) => c.nombre) : ORDEN_CATEGORIAS);
 
   // Agrupa por categoría (en el orden de la cocina) y ordena alfabéticamente dentro de cada grupo.
   function agruparPorCategoria(insumos) {
     const grupos = {};
     insumos.forEach((i) => { (grupos[i.categoria || 'Otros'] = grupos[i.categoria || 'Otros'] || []).push(i);
   });
-    const pos = (c) => { const k = ORDEN_CATEGORIAS.indexOf(c); return k < 0 ? ORDEN_CATEGORIAS.length : k; };
+    const orden = nombresCategorias();
+    const pos = (c) => { const k = orden.indexOf(c); return k < 0 ? orden.length : k; };
     return Object.keys(grupos)
       .sort((a, b) => pos(a) - pos(b) || a.localeCompare(b, 'es'))
       .map((categoria) => ({ categoria, items: grupos[categoria].sort(porNombre) }));
@@ -119,7 +128,8 @@
   const campoConEtiqueta = (id, texto, el) => h('div', { class: 'campo-grupo' }, h('label', { class: 'etiqueta-campo', for: id }, texto), el);
 
   Object.assign(Santo, {
-    FORMAS_MEDIR, seCuenta, alOjo, seCompra, seHaceEnCasa, NIVELES, NIVELES_ALERTA, EMOJI_NIVEL,
+    FORMAS_MEDIR, seCuenta, alOjo, seCompra, seHaceEnCasa, sumaAlComprar, UNIDADES_COMPRA, unidadCompraCorta,
+    nombresCategorias, NIVELES, NIVELES_ALERTA, EMOJI_NIVEL,
     textoNivel, capital, mostrar, mostrarTexto, unidadDeIngreso, ORDEN_CATEGORIAS, agruparPorCategoria,
     TILDES, sinTildes, textoBusqueda, buscador, bajoMinimo, negativo, nivelBajo, porComprar,
     selectorNivel, filaNivel, filaNivelVer, grupoInsumos, pastillaRevisar, selectCasilla,

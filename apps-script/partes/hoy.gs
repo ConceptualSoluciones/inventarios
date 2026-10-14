@@ -10,6 +10,7 @@ function cargarHoy() {
   return {
     fecha: fecha,
     insumos: insumosActivos(),
+    categorias: categoriasActivas(),
     dia: {
       compras: distintos(movs.filter((m) => m.tipo === 'compra' && !compraAnulada(m))),
       // Lo que salió de Producción (lo preparado al ojo deja un movimiento "nivel" con origen de producción).

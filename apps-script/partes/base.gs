@@ -40,8 +40,9 @@ const HORA_CORTE_DIA = 5;
 const HOJAS = {
   // revisar = "sí" en lo que vino de la semilla y la dueña todavía no confirmó.
   // origen = comprado (aparece en Compras) o hecho_en_casa (sale de Producción).
+  // unidad_compra = gramos o unidad: cómo se anota en Compras (puede ser distinta de cómo se cuenta, ver sumaAlComprar).
   Insumos: ['id', 'nombre', 'alias', 'categoria', 'medicion', 'unidad', 'stock_actual', 'stock_minimo',
-    'estado_actual', 'nota', 'revisar', 'activo', 'origen'],
+    'estado_actual', 'nota', 'revisar', 'activo', 'origen', 'unidad_compra'],
   // fecha = día de operación (para agrupar por día) · momento = fecha calendario y hora reales (para ordenar).
   // precio = total pagado en una compra (opcional).
   Movimientos: ['id', 'fecha', 'hora', 'insumo_id', 'tipo', 'cantidad', 'precio', 'origen', 'nota', 'usuario', 'momento'],
@@ -49,7 +50,9 @@ const HOJAS = {
   // al_ojo = "sí": el ingrediente va en la receta solo como información y no se descuenta.
   RecetaIngredientes: ['receta_id', 'insumo_id', 'cantidad', 'al_ojo'],
   VentasDia: ['fecha', 'receta_id', 'cantidad', 'actualizado_por', 'actualizado_en'],
-  Equipo: ['nombre', 'pin_hash', 'rol', 'activo']
+  Equipo: ['nombre', 'pin_hash', 'rol', 'activo'],
+  // Categorías de productos, en el orden de la cocina. Existen aunque estén vacías; activa = "no" si se quitó.
+  Categorias: ['nombre', 'emoji', 'orden', 'activa']
 };
 // Pestañas de versiones anteriores que empezarDeCero() borra.
 const HOJAS_ANTIGUAS = ['Cierres'];
@@ -79,6 +82,26 @@ const ORIGENES = ['comprado', 'hecho_en_casa'];
 function seCompra(i) { return i.origen === 'comprado'; }
 // Si falta el origen: lo porcionado se hace en casa y lo demás se compra.
 function origenDe(i) { return ORIGENES.indexOf(i.origen) >= 0 ? i.origen : i.medicion === 'presentacion' ? 'hecho_en_casa' : 'comprado'; }
+
+// Unidad de compra: en Compras todo se anota en gramos, salvo lo que se compra por unidad (panes, palta, huevo…).
+const UNIDADES_COMPRA = ['gramos', 'unidad'];
+function unidadCompraDe(i) {
+  return UNIDADES_COMPRA.indexOf(i.unidad_compra) >= 0 ? i.unidad_compra : i.medicion === 'unidad' ? 'unidad' : 'gramos';
+}
+// La compra suma al inventario solo si se compra en la misma unidad en que se cuenta (gramos o unidad).
+// Si no (al ojo, porciones), la compra guarda la cantidad y el precio para el gasto; lo que va al ojo queda lleno
+// y las porciones entran por Producción.
+function sumaAlComprar(i) {
+  const u = unidadCompraDe(i);
+  return (i.medicion === 'gramos' && u === 'gramos') || (i.medicion === 'unidad' && u === 'unidad');
+}
+
+// Categorías al empezar, en el orden de la cocina (el emoji es el del mensaje de WhatsApp).
+const CATEGORIAS_INICIALES = [['Panes', '🥖'], ['Carnes y proteínas', '🥩'], ['Salsas y aderezos', '🥫'], ['Verduras', '🥬'],
+  ['Complementos', '🍟'], ['Lácteos', '🧀'], ['Secos', '🌾'], ['Congelados', '🧊'], ['Bebidas', '🥤'],
+  ['Insumos y condimentos', '🧂'], ['Descartables', '🥡'], ['Limpieza', '🧽']];
+// Nombre anterior de "Insumos y condimentos".
+const CATEGORIA_ANTERIOR = 'Solo producción';
 
 // ---------------------------------------------------------------------------
 // Instalación
@@ -129,6 +152,60 @@ function prepararHoja(libro, nombre) {
     if (esColumnaTexto(col)) sh.getRange(2, i + 1, sh.getMaxRows() - 1, 1).setNumberFormat('@');
   });
   return sh;
+}
+
+// Agrega a Categorias las iniciales que falten y las que ya usa algún producto. No cambia las que existen
+// (ni revive las que se quitaron). Sin bloqueo: lo pone quien llama.
+function completarCategorias() {
+  const filas = leerTabla('Categorias');
+  const hay = (n) => filas.some((c) => mismoNombre(c.nombre, n));
+  let orden = filas.reduce((m, c) => Math.max(m, num(c.orden)), 0);
+  const nuevas = [];
+  const agregar = (nombre, emoji) => {
+    if (!nombre || hay(nombre) || nuevas.some((c) => mismoNombre(c.nombre, nombre))) return;
+    nuevas.push({ nombre: nombre, emoji: emoji, orden: ++orden, activa: true });
+  };
+  CATEGORIAS_INICIALES.forEach(([nombre, emoji]) => agregar(nombre, emoji));
+  leerTabla('Insumos').filter((i) => activo(i.activo)).forEach((i) => agregar(String(i.categoria || '').trim(), ''));
+  agregarFilas('Categorias', nuevas);
+}
+
+// Migración de una versión anterior, sin borrar nada (corre sola antes de cada pedido y solo hace algo una vez):
+//   - Insumos sin la columna unidad_compra: la agrega al final, la llena (unidad lo que se cuenta por unidad, gramos
+//     lo demás) y renombra la categoría "Solo producción" a "Insumos y condimentos".
+//   - Sin la pestaña Categorias: la crea con las iniciales y las que usan los productos.
+// Es lo único que un pedido web cambia en la estructura del Sheet, y solo agrega.
+function migrar() {
+  const libro = SpreadsheetApp.getActive();
+  const cab = HOJAS.Insumos;
+  const anterior = cab.slice(0, -1).join('|');
+  const faltaColumna = () => {
+    const sh = libro.getSheetByName('Insumos');
+    if (!sh || sh.getLastRow() < 1) return false;
+    if (sh.getLastColumn() !== cab.length - 1) return false;
+    return sh.getRange(1, 1, 1, cab.length - 1).getValues()[0].map(String).join('|') === anterior;
+  };
+  if (!faltaColumna() && libro.getSheetByName('Categorias')) return;
+  conBloqueo(() => {
+    if (faltaColumna()) {
+      const sh = libro.getSheetByName('Insumos');
+      // Una hoja de Sheets sin columnas libres necesita una más (en el modo demo no hace falta).
+      if (sh.getMaxColumns && sh.getMaxColumns() < cab.length) sh.insertColumnsAfter(sh.getMaxColumns(), 1);
+      sh.getRange(1, cab.length).setValue('unidad_compra').setFontWeight('bold');
+      const ultima = sh.getLastRow();
+      if (ultima >= 2) {
+        const filas = sh.getRange(2, 1, ultima - 1, cab.length).getValues();
+        const col = (n) => cab.indexOf(n);
+        sh.getRange(2, col('unidad_compra') + 1, filas.length, 1).setValues(filas.map((r) => [r[col('medicion')] === 'unidad' ? 'unidad' : 'gramos']));
+        sh.getRange(2, col('categoria') + 1, filas.length, 1).setValues(filas.map((r) =>
+          [mismoNombre(r[col('categoria')], CATEGORIA_ANTERIOR) ? 'Insumos y condimentos' : r[col('categoria')]]));
+      }
+    }
+    if (!libro.getSheetByName('Categorias')) {
+      prepararHoja(libro, 'Categorias');
+      completarCategorias();
+    }
+  });
 }
 
 // Borra TODOS los datos de la app (productos, movimientos, recetas y ventas; el Equipo no) y vuelve a cargar la semilla.
@@ -189,6 +266,7 @@ function doPost(e) {
   try {
     // El nombre de quien registra sale de su sesión (o de su PIN al ingresar), nunca de lo que manda la pantalla.
     const persona = identificar(pedido);
+    migrar();
     revisarHojas();
     const accion = acciones()[pedido.action];
     if (!accion) throw new ErrorApp('Acción desconocida.', 'accion');

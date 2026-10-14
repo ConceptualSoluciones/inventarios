@@ -11,9 +11,20 @@ function insumosActivos() {
       medicion: medicion, unidad: ojo ? '' : String(i.unidad || UNIDAD_POR_DEFECTO[medicion]),
       stock_actual: ojo ? 0 : num(i.stock_actual), stock_minimo: ojo ? 0 : num(i.stock_minimo),
       estado_actual: ojo ? (NIVELES.indexOf(i.estado_actual) >= 0 ? i.estado_actual : NIVEL_INICIAL) : '',
-      nota: String(i.nota || ''), revisar: marcado(i.revisar), origen: origenDe(i)
+      nota: String(i.nota || ''), revisar: marcado(i.revisar), origen: origenDe(i), unidad_compra: unidadCompraDe(i)
     };
   });
+}
+
+// Categorías activas en su orden: [{ nombre, emoji }]. Las que usa algún producto y no están en la pestaña van al final.
+function categoriasActivas() {
+  const lista = leerTabla('Categorias').filter((c) => activo(c.activa) && String(c.nombre).trim())
+    .sort((a, b) => num(a.orden) - num(b.orden))
+    .map((c) => ({ nombre: String(c.nombre).trim(), emoji: String(c.emoji || '') }));
+  insumosActivos().forEach((i) => {
+    if (!lista.some((c) => mismoNombre(c.nombre, i.categoria))) lista.push({ nombre: i.categoria, emoji: '' });
+  });
+  return lista;
 }
 
 // Escribe algunas columnas de una fila de Insumos.
@@ -51,14 +62,19 @@ function valorMovimiento(m) {
 }
 
 // stock_actual de lo que se cuenta = suma de todos sus movimientos. Se escribe la columna entera de una vez.
-// Lo que va al ojo no tiene stock. Al final avisa por Telegram de lo que quedó bajo el mínimo.
+// Lo que va al ojo no tiene stock. Las compras (y sus anulaciones) suman solo si el producto se compra en la misma
+// unidad en que se cuenta (ver sumaAlComprar). Al final avisa por Telegram de lo que quedó bajo el mínimo.
 function recalcularStocks() {
-  const totales = {};
-  leerTabla('Movimientos').forEach((m) => {
-    totales[m.insumo_id] = (totales[m.insumo_id] || 0) + valorMovimiento(m);
-  });
   const insumos = leerTabla('Insumos');
   if (!insumos.length) return;
+  const porId = {};
+  insumos.forEach((i) => { porId[i.id] = i; });
+  const totales = {};
+  leerTabla('Movimientos').forEach((m) => {
+    const i = porId[m.insumo_id];
+    if ((m.tipo === 'compra' || m.tipo === 'compra_anulada') && i && !sumaAlComprar(i)) return;
+    totales[m.insumo_id] = (totales[m.insumo_id] || 0) + valorMovimiento(m);
+  });
   const stock = (i) => (i.medicion === 'ojo' ? '' : redondear(totales[i.id] || 0));
   const col = HOJAS.Insumos.indexOf('stock_actual') + 1;
   const sh = hoja('Insumos');
