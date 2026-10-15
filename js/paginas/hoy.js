@@ -11,9 +11,9 @@
   // Apertura → Producción → Cierre. El cierre lo hace un admin: cocina lo ve, pero no lo abre.
   // Las compras, por ahora, también son de admin: cocina no ve ese paso.
   const PASOS = [
-    { id: 'compras', nombre: 'Compras', etiqueta: '1 · apertura', color: 'navy', ilustracion: 'ventas', href: '#compras', oculto: true },
+    { id: 'compras', nombre: 'Compras', etiqueta: '1 · apertura', color: 'navy', ilustracion: 'compras', href: '#compras', oculto: true },
     { id: 'produccion', nombre: 'Producción', etiqueta: '2 · en cocina', color: 'olive', ilustracion: 'produccion', href: '#produccion' },
-    { id: 'cierre', nombre: 'Cierre', etiqueta: '3 · en la noche', color: 'sand', ilustracion: 'inventario', href: '#ventas', soloAdmin: true }
+    { id: 'cierre', nombre: 'Cierre', etiqueta: '3 · en la noche', color: 'sand', ilustracion: 'cierre', href: '#ventas', soloAdmin: true }
   ];
 
   function pildoraPaso(paso, texto) {

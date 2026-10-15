@@ -1,50 +1,67 @@
-/* SANTO — estilos. Tokens y medidas según DESIGN.md */
+/* SANTO — estilos. Dirección "pizarra sobre pared blanca". Tokens y medidas según DESIGN.md */
 
 :root {
+  /* Pizarra sobre pared blanca: blanco de fondo, negro de pizarra, azul SANTO solo para "lo que toca". */
   --bg: #FFFFFF;
-  --surface: #F5F3EF;
-  --ink: #1C2236;
-  --ink-soft: #6E7182;
-  --line: #E6E2DA;
+  --surface: #EDEDEA;           /* gris pared: notas, pasos que todavía no tocan, barra de hojas */
+  --ink: #141414;               /* negro pizarra */
+  --ink-soft: #5C5C5C;          /* 6.7:1 sobre blanco, 5.7:1 sobre gris pared */
+  --line: #D6D6D1;              /* divisores (decorativos) */
+  --borde-campo: #76766F;       /* borde de campos y botones − + (4.6:1 sobre blanco) */
+  --campo-bg: #FFFFFF;
   --on-ink: #FFFFFF;            /* texto sobre fondo --ink (botón principal, toasts) */
 
-  --tinta: #1C2236;             /* fija: texto sobre píldoras claras e iconos de la barra */
-  --pill-mustard: #F4C15D;
-  --pill-plum: #4A3B47;
-  --pill-navy: #25365C;
-  --pill-sand: #C9BBA8;
-  --pill-olive: #7F8A55;
-  --pill-slate: #8C93A3;
+  --tinta: #141414;             /* fija: texto sobre fondos claros fijos (pastillas blancas, círculos) */
+  --azul: #2D6BF5;              /* azul SANTO: pincelada y foco. Nunca texto chico sobre negro */
+  --azul-tinta: #1F55E0;        /* azul para botones y texto sobre blanco (6.1:1) */
 
   --alert: #C2412A;
   --alert-bg: #FBE7E2;
-  --alert-ink: #1C2236;         /* texto sobre --alert-bg */
+  --alert-ink: #141414;         /* texto sobre --alert-bg */
   --alert-texto: #C2412A;       /* --alert usado como color de texto sobre --bg */
-  --ok: #3E7B5A;
+  --ok: #2E7D4F;
 
-  --barra-bg: var(--surface);
-  --sombra: 0 -4px 24px rgba(28, 34, 54, .08);
-  --fuente: "Outfit", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --paso-bg: var(--surface);    /* paso de Hoy en reposo */
+  --paso-ink: var(--ink);
+  --paso-ahora-bg: #141414;     /* paso que toca: pizarra negra */
+  --paso-ahora-ink: #FFFFFF;
+  --paso-ahora-soft: #B5B5B0;
+  --pincelada: #2D6BF5;
+
+  --barra-bg: #FFFFFF;
+  --barra-ink: #141414;
+  --sombra: 0 -4px 24px rgba(20, 20, 20, .08);
+  --fuente: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --fuente-titulo: "Archivo", "Arial Narrow", "Segoe UI", sans-serif;
   --margen: 20px;
   --ancho: 480px;
-  --radio: 16px;
+  --radio: 12px;
   --barra-alto: 72px;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
+  /* De noche, la pizarra entera: el paso que toca se vuelve blanco, como el círculo del logo. */
   :root {
-    --bg: #12172B;
-    --surface: #1D2340;
+    --bg: #141414;
+    --surface: #242424;
     --ink: #FFFFFF;
-    --ink-soft: #A3A8BA;
-    --line: #2C3354;
-    --on-ink: #1C2236;
-    --pill-navy: #34477A;
-    --alert-bg: #3A2330;
+    --ink-soft: #B5B5B0;
+    --line: #333333;
+    --borde-campo: #8A8A85;     /* 5.3:1 sobre --bg */
+    --campo-bg: #1C1C1C;
+    --on-ink: #141414;
+    --azul-tinta: #2D6BF5;
+    --alert-bg: #3A2320;
     --alert-ink: #FFFFFF;
-    --alert-texto: #F0A08A;     /* --alert no llega a 4.5:1 sobre el fondo oscuro */
-    --barra-bg: #FFFFFF;
+    --alert-texto: #FF8A70;     /* --alert no llega a 4.5:1 sobre el fondo oscuro */
+    --ok: #6FCF97;
+    --paso-ahora-bg: #FFFFFF;
+    --paso-ahora-ink: #141414;
+    --paso-ahora-soft: #5C5C5C;
+    --pincelada: #1F55E0;
+    --barra-bg: #141414;
+    --barra-ink: #FFFFFF;
     color-scheme: dark;
   }
 }
@@ -72,7 +89,7 @@ ul { padding: 0; list-style: none; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 
-:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+:focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; }
 .vista:focus { outline: none; }
 
 /* ---------- estructura ---------- */
@@ -84,9 +101,19 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
-.logo { font-size: 22px; font-weight: 700; }
+/* Logo oficial (assets/logo-santo.png, blanco sobre negro). En la cabecera se recorta para dejar solo la palabra. */
+.logo {
+  display: block;
+  width: 80px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #000000;
+  outline: 1px solid var(--line);
+}
+.logo img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%; }
 .modo-demo { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
 
 .vista {
@@ -98,7 +125,16 @@ button { cursor: pointer; }
   gap: 16px;
 }
 
-.titulo { font-size: 24px; font-weight: 700; line-height: 1.2; }
+/* Títulos como en las pizarras del local: Archivo extra condensada, muy gruesa y en mayúsculas.
+   Solo títulos: botones, ayudas y nombres de productos van en letra normal. */
+.titulo, .hoja-titulo, .subtitulo--seccion, .pill-nombre {
+  font-family: var(--fuente-titulo);
+  font-stretch: 62%;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .01em;
+}
+.titulo { font-size: 40px; line-height: 1; }
 .subtitulo { font-size: 13px; font-weight: 500; color: var(--ink-soft); margin-bottom: 8px; }
 .pequeno { font-size: 13px; font-weight: 500; }
 .texto-suave { color: var(--ink-soft); }
@@ -117,10 +153,11 @@ button { cursor: pointer; }
   font-size: 16px;
   font-weight: 700;
   text-decoration: none;
+  white-space: nowrap;
 }
 .btn:disabled { opacity: .6; cursor: default; }
 .btn-primario { width: 100%; background: var(--ink); color: var(--on-ink); }
-.btn-secundario { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.btn-secundario { background: var(--bg); color: var(--ink); border: 2px solid var(--ink); }
 .btn-chico { min-height: 44px; padding: 0 14px; }
 .btn-ancho { width: 100%; }
 
@@ -128,12 +165,15 @@ button { cursor: pointer; }
   width: 100%;
   min-height: 52px;
   padding: 0 16px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--borde-campo);
   border-radius: var(--radio);
-  background: var(--surface);
+  background: var(--campo-bg);
   color: var(--ink);
   font-size: 16px;
 }
+/* Al escribir: borde azul SANTO. */
+.campo:focus, .numero-input:focus { border-color: var(--azul); outline: 1px solid var(--azul); outline-offset: 0; }
+.campo::placeholder { color: var(--ink-soft); }
 .etiqueta-campo { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
 .campo-grupo { display: flex; flex-direction: column; gap: 6px; }
 
@@ -145,21 +185,21 @@ button { cursor: pointer; }
   place-items: center;
   width: 44px;
   height: 44px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--borde-campo);
   border-radius: var(--radio);
   background: var(--surface);
   color: var(--ink);
-  font-size: 24px;
-  font-weight: 500;
+  font-size: 26px;
+  font-weight: 700;
   line-height: 1;
 }
 .numero-input {
   width: 88px;
   min-height: 52px;
   padding: 0 8px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--borde-campo);
   border-radius: var(--radio);
-  background: var(--surface);
+  background: var(--campo-bg);
   color: var(--ink);
   text-align: center;
   font-size: 24px;
@@ -201,7 +241,7 @@ button { cursor: pointer; }
 
 .hoy { display: flex; flex-direction: column; gap: 24px; }
 .hoy > .fila-fecha + .fecha-larga { margin-top: -16px; }
-.subtitulo--seccion { margin: 8px 0 -8px; font-size: 16px; font-weight: 700; color: var(--ink); }
+.subtitulo--seccion { margin: 8px 0 -8px; font-size: 24px; line-height: 1; color: var(--ink); }
 
 /* Control del día (proteínas): inicial + producido − vendido − merma = quedan */
 .control { display: flex; flex-direction: column; gap: 12px; padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
@@ -230,7 +270,7 @@ button { cursor: pointer; }
 .estado-btn {
   min-height: 52px;
   padding: 0 4px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--borde-campo);
   border-radius: var(--radio);
   background: var(--surface);
   color: var(--ink);
@@ -259,43 +299,66 @@ button { cursor: pointer; }
 .acciones-lista { display: flex; justify-content: flex-end; }
 
 /* Compras: total gastado del día, al final */
-.total-dia { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; border-top: 2px solid var(--ink); }
+.total-dia { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; border-top: 3px solid var(--ink); }
 .total-dia h2 { margin: 0; }
 
 .plegable > summary { display: list-item; min-height: 44px; padding: 12px 0; cursor: pointer; }
 
-/* ---------- píldoras ---------- */
+/* ---------- pasos de Hoy (pizarras) ---------- */
 
-.pills { display: flex; flex-direction: column; gap: 16px; padding-top: 12px; }
+/* En reposo, cada paso es un bloque gris pared. El paso que toca ahora (.pill--ahora) es la pizarra negra
+   con la pincelada azul; el que ya se hizo (.pill--hecho) queda blanco con contorno y "✓".
+   Quién lleva .pill--ahora / .pill--hecho lo decide js/paginas/hoy.js (pendiente para la programadora). */
+.pills { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
 
 .pill {
-  --c: var(--pill-slate);
-  --t: var(--tinta);
-  --acento: var(--tinta);
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
   width: 100%;
-  min-height: 88px;
-  padding: 12px 116px 12px 24px;
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background: var(--c);
-  color: var(--t);
+  min-height: 104px;
+  padding: 14px 108px 14px 20px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: var(--paso-bg);
+  color: var(--paso-ink);
   text-align: left;
 }
-.pill--mustard { --c: var(--pill-mustard); }
-.pill--plum { --c: var(--pill-plum); --t: #FFFFFF; --acento: #F0A08A; }
-.pill--navy { --c: var(--pill-navy); --t: #FFFFFF; --acento: #F4C15D; }
-.pill--sand { --c: var(--pill-sand); }
-/* olive y slate: el blanco no llega a 4.5:1 en texto chico; se usa tinta (DESIGN.md › Accesibilidad) */
-.pill--olive { --c: var(--pill-olive); }
-.pill--slate { --c: var(--pill-slate); }
 
-.pill-etiqueta { font-size: 12px; font-weight: 500; line-height: 1.2; color: var(--acento); }
-.pill-nombre { font-size: 20px; font-weight: 700; line-height: 1.2; }
+.pill-etiqueta { font-size: 14px; font-weight: 600; line-height: 1.2; color: var(--ink-soft); }
+.pill-nombre { position: relative; display: inline-block; margin-top: 2px; font-size: 36px; line-height: 1; }
+.pill-nombre--menu { font-size: 36px; }
+.pill-estado { margin-top: 8px; font-size: 16px; font-weight: 500; line-height: 1.3; }
+
+/* Lo que toca ahora: pizarra negra (blanca de noche) con pincelada azul debajo del nombre. */
+.pill--ahora { background: var(--paso-ahora-bg); color: var(--paso-ahora-ink); }
+.pill--ahora .pill-etiqueta, .pill--ahora .pill-estado { color: var(--paso-ahora-soft); }
+.pill--ahora .pill-nombre::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -10px;
+  bottom: -10px;
+  height: 12px;
+  background: var(--pincelada);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M2 7C40 3 90 2 140 4s50 2 58 1l-2 5c-46-1-96 0-136-1S10 11 3 11z'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M2 7C40 3 90 2 140 4s50 2 58 1l-2 5c-46-1-96 0-136-1S10 11 3 11z'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+.pill--ahora .pill-estado { margin-top: 14px; }
+
+/* Ya hecho: se apaga, con contorno y check. */
+.pill--hecho { border-color: var(--line); background: var(--bg); }
+.pill--hecho .pill-nombre { color: var(--ink-soft); }
+.pill--hecho .pill-estado::before { content: "✓ "; font-weight: 700; color: var(--ok); }
+
+/* Lo que esta persona no puede abrir (el Cierre para cocina): solo contorno punteado. */
+div.pill { cursor: default; border: 2px dashed var(--line); background: transparent; }
+div.pill .pill-nombre { color: var(--ink-soft); }
+div.pill .pill-ilus { opacity: .55; }
+
+a.pill { text-decoration: none; }
 
 .pill--alerta, .pill--revisar { border-color: var(--alert); }
 .pill-tag {
@@ -312,25 +375,23 @@ button { cursor: pointer; }
   line-height: 1.3;
 }
 
+/* Dibujo en un círculo blanco, como el cartel del local. */
 .pill-ilus {
   position: absolute;
-  top: -12px;
-  right: -12px;
+  top: 50%;
+  right: 16px;
   display: grid;
   place-items: center;
-  width: 96px;
-  height: 96px;
+  width: 76px;
+  height: 76px;
+  margin-top: -38px;
   overflow: hidden;
+  border: 2px solid var(--tinta);
   border-radius: 50%;
-  background: var(--surface);
+  background: #FFFFFF;
 }
 .pill-ilus img { display: block; width: 100%; height: 100%; }
-.pill-inicial { font-size: 28px; font-weight: 700; color: var(--ink); }
-
-a.pill { text-decoration: none; }
-.pill-nombre--menu { font-size: 24px; }
-.pill-estado { margin-top: 2px; font-size: 13px; font-weight: 500; line-height: 1.3; }
-div.pill { cursor: default; }
+.pill-inicial { font-family: var(--fuente-titulo); font-stretch: 62%; font-size: 32px; font-weight: 900; color: var(--tinta); }
 
 .etiqueta-estado {
   padding: 2px 10px;
@@ -347,7 +408,8 @@ div.pill { cursor: default; }
 
 /* ---------- Inventario: gráfica de barras ---------- */
 
-.titulo-fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.titulo-fila { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.titulo-fila .titulo { font-size: 36px; }
 
 .grafica { display: flex; flex-direction: column; }
 .grafica-fila {
@@ -401,12 +463,10 @@ select.campo { appearance: auto; }
   max-width: var(--ancho);
   margin: 0 auto;
   padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-  border-radius: 28px 28px 0 0;
+  border-top: 2px solid var(--barra-ink);
   background: var(--barra-bg);
-  box-shadow: var(--sombra);
-  color: var(--tinta);
+  color: var(--barra-ink);
 }
-.barra :focus-visible { outline-color: var(--tinta); }
 
 .nav-item {
   display: flex;
@@ -416,9 +476,9 @@ select.campo { appearance: auto; }
   gap: 2px;
   min-height: 56px;
   border-radius: 12px;
-  color: var(--tinta);
+  color: var(--barra-ink);
   text-decoration: none;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 .nav-item svg {
@@ -426,11 +486,11 @@ select.campo { appearance: auto; }
   height: 24px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.nav-item.activo { font-weight: 700; }
+.nav-item.activo { font-weight: 800; }
 .nav-item.activo .relleno { fill: currentColor; }
 .nav-item.activo .hueco { stroke: var(--barra-bg); }
 
@@ -439,19 +499,20 @@ select.campo { appearance: auto; }
   justify-self: center;
   display: grid;
   place-items: center;
-  width: 60px;
-  height: 60px;
-  margin-top: -28px;            /* sobresale 20px sobre el borde de la barra */
-  border: 0;
+  width: 64px;
+  height: 64px;
+  margin-top: -32px;            /* sobresale sobre el borde de la barra */
+  border: 3px solid var(--barra-bg);
   border-radius: 50%;
-  background: var(--tinta);
+  background: var(--azul-tinta);
+  box-shadow: 0 0 0 2px var(--barra-ink);
   color: #FFFFFF;
 }
-.nav-registrar svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.nav-registrar svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
 
 /* ---------- hoja que sube ---------- */
 
-.capa { position: fixed; z-index: 20; inset: 0; background: rgba(28, 34, 54, .4); }
+.capa { position: fixed; z-index: 20; inset: 0; background: rgba(20, 20, 20, .5); }
 
 .hoja {
   position: fixed;
@@ -466,7 +527,8 @@ select.campo { appearance: auto; }
   padding: 0 var(--margen) calc(24px + env(safe-area-inset-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-radius: 28px 28px 0 0;
+  border-radius: 20px 20px 0 0;
+  border-top: 2px solid var(--ink);
   background: var(--bg);
   box-shadow: var(--sombra);
   transform: translateY(100%);
@@ -487,7 +549,7 @@ select.campo { appearance: auto; }
 }
 .hoja-tirador:focus-visible { outline-offset: -3px; }
 .hoja-tirador span { width: 40px; height: 5px; border-radius: 3px; background: var(--ink-soft); opacity: .45; }
-.hoja-titulo { margin-bottom: 16px; font-size: 24px; font-weight: 700; }
+.hoja-titulo { margin-bottom: 16px; font-size: 32px; line-height: 1; }
 
 
 .fila {
@@ -539,14 +601,14 @@ select.campo { appearance: auto; }
   width: 100%;
   min-height: 72px;
   padding: 14px 20px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--ink);
   border-radius: var(--radio);
-  background: var(--surface);
+  background: var(--bg);
   color: var(--ink);
   text-align: left;
 }
 .menu-op-texto { font-size: 20px; font-weight: 700; }
-.menu-op-ayuda { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
+.menu-op-ayuda { font-size: 14px; font-weight: 500; color: var(--ink-soft); }
 
 /* ---------- listas (Más) ---------- */
 
@@ -625,7 +687,9 @@ select.campo { appearance: auto; }
   margin: 0 auto;
   padding: calc(48px + env(safe-area-inset-top)) var(--margen) 32px;
 }
-.ingreso-caja .logo { margin-bottom: 16px; text-align: center; }
+/* En el ingreso, el logo completo con "Culto al sandwich". */
+.ingreso-caja .logo { align-self: center; width: 168px; height: auto; margin-bottom: 8px; border-radius: 16px; outline: 0; }
+.ingreso-caja .logo img { height: auto; object-fit: contain; }
 .ingreso-form { display: flex; flex-direction: column; gap: 16px; }
 .ingreso-error { min-height: 1.4em; font-weight: 500; color: var(--alert-texto); }
 

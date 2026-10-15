@@ -1,10 +1,10 @@
 # DESIGN.md — SANTO Control
 
-Sistema visual para la app interna de inventario de SANTO. Referencia: app de comida con tarjetas en forma de píldora, colores planos y una ilustración que se sale por el borde derecho de cada tarjeta. Uso principal: celular en cocina, con luz fuerte y prisa.
+Sistema visual de la app interna de inventario de SANTO. Dirección: **"pizarra sobre pared blanca"**. Sale del local: las pizarras de menú son negras y cuelgan sobre una pared blanca, los títulos son gruesos, angostos y en mayúsculas, y el único color es un azul eléctrico. Uso principal: celular en cocina, con luz fuerte y apuro.
 
 ## Idea central
 
-Las 4 secciones principales (Inventario, Recetas, Producción y Ventas) son **píldoras de color con su ilustración** en la pantalla Hoy. Se reconocen por el color y el dibujo antes de leer. Debajo, "Lo que falta hacer". Las casillas del inventario NO van en píldoras: van en una gráfica de barras o en filas simples. Todo lo demás es tranquilo: fondo limpio, poco texto, una sola barra de navegación abajo con un botón central "+".
+Fondo blanco (la pared) y bloques negros (las pizarras). **El azul SANTO marca solo lo que toca hacer ahora**: la pincelada bajo el paso del día que toca y el botón "+". Todo lo demás es tranquilo: negro, blanco y gris pared.
 
 ## Color
 
@@ -12,146 +12,136 @@ Las 4 secciones principales (Inventario, Recetas, Producción y Ventas) son **p�
 
 | Token | Hex | Uso |
 |---|---|---|
-| `--bg` | `#FFFFFF` | Fondo de pantalla |
-| `--surface` | `#F5F3EF` | Barra inferior, campos de formulario, hojas que suben |
-| `--ink` | `#1C2236` | Texto principal, botón "+" central, iconos, barras de la gráfica |
-| `--ink-soft` | `#6E7182` | Texto secundario, etiquetas pequeñas |
-| `--line` | `#E6E2DA` | Divisores y bordes de campos |
-
-### Colores de píldora (uno por sección del menú, siempre el mismo)
-
-| Token | Hex | Texto encima | Asignación |
-|---|---|---|---|
-| `--pill-mustard` | `#F4C15D` | `--ink` | Inventario |
-| `--pill-plum` | `#4A3B47` | `#FFFFFF` / etiqueta `#F0A08A` | Recetas |
-| `--pill-navy` | `#25365C` | `#FFFFFF` / etiqueta `#F4C15D` | Producción |
-| `--pill-sand` | `#C9BBA8` | `--ink` | Ventas |
-| `--pill-olive` | `#7F8A55` | `--ink` (el blanco no llega a 4.5:1) | Libre |
-| `--pill-slate` | `#8C93A3` | `--ink` (el blanco no llega a 4.5:1) | Libre |
-
-No se inventan colores nuevos.
+| `--bg` | `#FFFFFF` | Fondo (pared), fondo de los campos |
+| `--surface` | `#EDEDEA` | Gris pared: notas, pasos que todavía no tocan, botones − + |
+| `--ink` | `#141414` | Negro pizarra: texto, botón principal, contornos, barras de la gráfica |
+| `--ink-soft` | `#5C5C5C` | Texto secundario (6.7:1 sobre blanco, 5.7:1 sobre gris pared) |
+| `--line` | `#D6D6D1` | Divisores (decorativos, no marcan nada que se toque) |
+| `--borde-campo` | `#76766F` | Borde de 2px de campos y botones − + (4.6:1 sobre blanco) |
+| `--azul` | `#2D6BF5` | Azul SANTO: pincelada, foco, botón "+". **Nunca texto chico sobre negro** (4.0:1) |
+| `--azul-tinta` | `#1F55E0` | Azul para fondos con texto blanco o texto azul sobre blanco (6.1:1) |
 
 ### Estados
 
 | Token | Hex | Uso |
 |---|---|---|
-| `--alert` | `#C2412A` | Bajo el mínimo. Reservado SOLO para alertas, nunca como color de píldora |
+| `--alert` | `#C2412A` | Bajo el mínimo, errores. Solo alertas |
 | `--alert-bg` | `#FBE7E2` | Fondo de avisos en listas |
-| `--ok` | `#3E7B5A` | Confirmación "Guardado" |
+| `--ok` | `#2E7D4F` | Check de "hecho" |
 
-### Modo oscuro
+### Modo oscuro (la pizarra entera)
 
-`--bg #12172B`, `--surface #1D2340`, `--ink #FFFFFF`, `--ink-soft #A3A8BA`, `--line #2C3354`. Las píldoras mantienen su color, salvo `--pill-navy`, que pasa a `#34477A` para separarse del fondo. La barra inferior se queda blanca con iconos `#1C2236` (como en la referencia). El texto de error usa `#F0A08A`, porque `--alert` no llega a 4.5:1 sobre el fondo oscuro.
+`--bg #141414`, `--surface #242424`, `--ink #FFFFFF`, `--ink-soft #B5B5B0`, `--line #333333`, `--borde-campo #8A8A85`, fondo de campos `#1C1C1C`. El paso que toca se vuelve **blanco con texto negro** (como el círculo del logo) y la pincelada pasa a `#1F55E0`. Texto de error `#FF8A70`, fondo de aviso `#3A2320`, check `#6FCF97`. La barra inferior es negra con línea blanca arriba.
+
+**Regla del azul:** sobre negro, el texto va blanco (o azul claro `#7FA8FF` si hace falta azul). El azul fuerte sobre negro solo se usa para dibujos (pincelada) o fondos con texto blanco grande.
+
+No se inventan colores nuevos.
 
 ## Tipografía
 
-Una sola familia: **Outfit** (Google Fonts), sans geométrica y redondeada. Fallback: `"Outfit", "Avenir Next", "Segoe UI", system-ui, sans-serif`.
+Una familia: **Archivo** (Google Fonts, variable en ancho y peso). Respaldo: `"Archivo", "Segoe UI", system-ui, sans-serif`. En títulos, `"Arial Narrow"` antes del respaldo.
 
-| Rol | Tamaño | Peso | Notas |
+| Rol | Tamaño | Estilo | Notas |
 |---|---|---|---|
-| Logo / título de app | 22px | 700 | Minúsculas, centrado en la cabecera |
-| Número grande | 34px | 700 | `font-variant-numeric: tabular-nums` |
-| Nombre en píldora del menú | 24px | 700 | |
-| Etiqueta en píldora | 12px | 500 | Sobre el nombre, color de acento, en minúscula normal |
-| Título de pantalla | 24px | 700 | |
-| Texto | 16px | 400 | Nunca menos de 16px en campos (evita el zoom en iPhone) |
-| Pequeño | 13px | 500 | Unidades, horas, ayudas |
+| Título de pantalla | 40px (36px si comparte fila con un botón) | Extra condensada (`font-stretch: 62%`), 900, MAYÚSCULAS | Como los títulos de las pizarras |
+| Nombre del paso (Hoy) | 36px | Igual que el título | |
+| Título de hoja que sube | 32px | Igual que el título | |
+| Sección dentro de pantalla ("Lo que usé") | 24px | Igual que el título | |
+| Texto | 16px | Normal 400–500 | Nunca menos de 16px en campos (evita el zoom en iPhone) |
+| Número en campo | 24px | 700, `tabular-nums` | |
+| Pequeño | 13–14px | 500 | Unidades, horas, ayudas |
 
-Nada en mayúsculas sostenidas. Las unidades van al lado del número, en tamaño pequeño: **12** u.
+**Las mayúsculas van solo en títulos.** Botones, ayudas, nombres de productos y etiquetas van en letra normal.
+
+## Logo
+
+- Archivo oficial: `assets/logo-santo.png` (blanco sobre negro, con "Culto al sandwich"). **No se redibuja ni se modifica.** Si hace falta más definición, se pide a la dueña un SVG o un PNG más grande.
+- Cabecera: insignia negra de 80×56 con bordes de 10px. Se recorta para mostrar solo la palabra "Santo".
+- Ingreso (PIN): el logo completo, de 168px de ancho, centrado.
 
 ## Forma y espacio
 
-- Píldoras: `border-radius: 999px`, alto mínimo 88px, padding izquierdo 24px.
-- Botones y campos: `border-radius: 16px`, alto mínimo 52px.
-- Botón central "+": círculo de 60px, `--ink`, sobresale 20px por encima de la barra inferior.
-- Barra inferior: `border-radius: 28px 28px 0 0`, fondo `--surface` (claro) o blanco (oscuro).
-- Espaciado base de 8px: 8 / 12 / 16 / 24 / 32. Separación entre píldoras: 16px.
-- Márgenes laterales: 20px. Ancho máximo del contenido: 480px, centrado en pantallas grandes.
-- Sin sombras en las píldoras; el color separa. Única sombra: barra inferior y hojas que suben (`0 -4px 24px rgba(28,34,54,.08)`).
+- Pasos de Hoy: bloques rectangulares con radio de 14px (no píldoras) y alto mínimo de 104px.
+- Botones y campos: radio de 12px y alto mínimo de 52px. Los botones − + miden 44px.
+- Botón "+" central: círculo azul de 64px con borde del color de la barra y anillo de 2px del color de la tinta.
+- Barra inferior: recta, con una línea de 2px arriba (negra en claro, blanca en oscuro).
+- Hoja que sube: esquinas superiores de 20px y una línea de 2px arriba.
+- Espaciado base de 8px. Márgenes laterales de 20px. Ancho máximo de 480px.
+- Sin sombras en tarjetas. Solo la hoja que sube lleva una sombra suave.
 
 ## Componentes
 
-### Píldoras del menú (Hoy)
+### Pasos del día (Hoy)
 
 ```
-┌─────────────────────────────────────╮  ╭───────╮
-│  lo que hay                         │  │ ilus- │
-│  Inventario                         │──│ tración│
-└─────────────────────────────────────╯  ╰───────╯
+┌───────────────────────────────────┐
+│ 1 · apertura                 ╭───╮│
+│ COMPRAS                      │ ◎ ││   ← dibujo en círculo blanco con borde
+│ Todavía no se anotó nada     ╰───╯│
+└───────────────────────────────────┘
 ```
 
-- Inventario (mustard, "lo que hay"), Recetas (plum, "lo que lleva cada pan"), Producción (navy, "lo que entra o se compra") y Ventas (sand, "panes y bebidas que salen").
-- Izquierda: etiqueta corta y nombre en 24px. Derecha: ilustración circular de 96px que se sale 12px por el borde derecho y el superior.
-- Si hay algo pendiente: borde de 3px `--alert` y una pastilla blanca arriba a la izquierda con texto `--alert` ("1 por comprar"). El color de la píldora no cambia.
+| Estado | Clase | Cómo se ve |
+|---|---|---|
+| En reposo | `.pill` | Bloque gris pared, texto negro |
+| **Toca ahora** | `.pill--ahora` | Pizarra negra (blanca de noche) con pincelada azul bajo el nombre |
+| Hecho | `.pill--hecho` | Blanco con contorno gris, nombre en gris y "✓" verde antes del estado |
+| No lo puede abrir (Cierre para cocina) | `div.pill` | Contorno punteado, nombre y dibujo apagados |
 
-### Lo que falta hacer (Hoy)
+Quién lleva `.pill--ahora` y `.pill--hecho` lo decide `js/paginas/hoy.js`. Las clases ya están en el css, pero falta conectar esa decisión: es lógica y le toca a la programadora.
 
-Debajo de las píldoras. Filas con fondo `--alert-bg`, un punto `--alert` y el texto "Comprar **Chicha**: quedan 2 u. · mínimo 3". Si no hay nada pendiente, una nota tranquila: "Todo está sobre el mínimo". Solo datos reales, nunca de ejemplo.
+### Campos
+
+- Fondo blanco (`--campo-bg`), borde de 2px `--borde-campo`. Al escribir, el borde se pone azul.
+- Campos de número con botones − y + de 44px, en gris pared, con borde de 2px. El número va centrado, en 24px y peso 700.
+- Usan `inputmode="decimal"`.
+
+### Botones
+
+- Principal: negro a lo ancho, con texto blanco (en modo oscuro, blanco con texto negro).
+- Secundario: blanco con contorno negro de 2px.
+- Opciones del menú "+": bloques blancos con contorno negro de 2px.
 
 ### Gráfica de inventario
 
-Aquí no van píldoras de colores, porque serían demasiadas. Arriba, un buscador. Después, una gráfica de barras horizontales agrupada por categoría (encabezado de 13px en `--ink-soft`), con las casillas en orden alfabético dentro de cada grupo: nombre a la izquierda, barra en `--ink` sobre una pista `--surface` (misma escala dentro del grupo, punta derecha con radio de 4px) y el número con su unidad a la derecha. Una rayita `--alert` de 2px marca el mínimo sobre la pista; si está bajo o en negativo, el número va en `--alert` con un punto al lado. Arriba a la derecha, el botón "+ Nueva casilla".
-
-### Filas con campo de número (Producción y Ventas)
-
-Una fila por casilla, producto o bebida: el nombre a la izquierda (con una nota pequeña debajo, por ejemplo "hay 7 porc. · en porciones", o la pastilla "Sin receta" / "Provisional") y el campo de número a la derecha. Divisores `--line` entre filas. Producción lleva buscador y los mismos grupos que Inventario; Ventas va en grupos Cultos, Criollos, Papas y Bebidas. Abajo, el botón principal a lo ancho ("Guardar entradas", "Revisar descuento").
-
-### Resumen de descuento (Ventas)
-
-Hoja que sube con el título "Se va a descontar", una fila por casilla con "−3 u." y, si hay panes sin receta, una nota con fondo `--alert-bg`. Abajo, "Confirmar ventas".
-
-### Editor de receta
-
-Hoja que sube con el nombre del producto. Un bloque por ingrediente: el selector de casilla a lo ancho (con las casillas agrupadas por categoría) y, debajo, el campo de número con la unidad ("g por pan · 1 porc. = 140 g") y el botón "Quitar". Después, "+ Agregar ingrediente" (secundario) y "Guardar receta" (principal).
-
-### Hoja que sube
-
-Fondo `--bg`, esquinas superiores de 28px, con un tirador gris arriba (también sirve para cerrar). Botón principal a lo ancho, con fondo `--ink` y texto blanco.
-
-### Botón "+" central
-
-Abre un menú corto con tres opciones grandes: "Lo que entró", "Ventas del día" y "Nueva casilla".
-
-### Barra inferior
-
-Iconos de línea de 24px con etiqueta de 12px debajo: Hoy, Inventario, [+], Recetas, Más. La sección activa se muestra con el icono relleno y la etiqueta en peso 700. Producción y Ventas marcan Hoy. "Más" abre una lista simple con Movimientos, Ajustes y "Cambiar de usuario".
-
-### Campos de número
-
-Usan `inputmode="decimal"` para abrir el teclado numérico. Tienen botones − y + de 44px a los lados para ajustar sin escribir, y el número va centrado en 24px y peso 700.
+Barras horizontales en `--ink` sobre una pista `--surface`. Una rayita `--alert` de 2px marca el mínimo. Si está bajo, el número va en `--alert-texto` con un punto al lado.
 
 ### Pastillas de estado
 
-Blancas, borde de 1.5px y texto `--alert`, 12px y peso 700: "Sin receta", "1 por comprar". "Provisional" no es una alerta: va con borde y texto `--ink-soft` sobre `--bg`.
+Blancas, borde de 1.5px y texto `--alert`, 12px y 700 ("Sin receta"). "Provisional" y "Por revisar" van en gris.
 
 ### Avisos
 
-Son toasts que aparecen arriba, con fondo `--ink`, texto blanco y 3 segundos de duración: "Guardado", "No se pudo guardar. Revisa tu conexión y vuelve a intentar."
+Toasts arriba, con fondo `--ink`, texto `--on-ink` y 3 segundos de duración.
 
 ## Ilustraciones
 
-- Estilo plano, vista cenital (desde arriba), formas simples, sin contornos negros y sin degradados, igual que la referencia.
-- Una por píldora del menú, en SVG, dentro de un círculo: `inventario.svg` (cajón con productos), `recetas.svg` (pan), `produccion.svg` (olla) y `ventas.svg` (boleta y monedas). Se pueden reemplazar con el mismo nombre de archivo.
-- Si falta una ilustración, se muestra un círculo `--surface` con la inicial del nombre en 28px y peso 700.
-- No usar emojis ni fotos dentro de las píldoras.
+- Estilo "marcador": trazo negro `#141414` de 4px con puntas redondas, rellenos blancos y **un solo acento azul `#2D6BF5`** por dibujo. Cada dibujo va dentro de un círculo blanco (como el cartel del local). Son SVG de 96×96, en `assets/ilustraciones/`.
+- `compras.svg`: bolsa de mercado con pan y hierbas.
+- `produccion.svg`: olla con vapor y llama azul.
+- `cierre.svg`: puesto con la persiana bajando y luna azul.
+- `inventario.svg`: caja abierta con botella y lata.
+- `recetas.svg`: sándwich.
+- `ventas.svg`: boleta y moneda.
+- Todas son originales. Si falta una, se muestra un círculo blanco con la inicial.
 
 ## Movimiento
 
-- La hoja que sube aparece en 220ms con `ease-out`.
-- Nada más se anima. Con `prefers-reduced-motion` se quita todo.
+- La hoja que sube aparece en 220ms con `ease-out`. Nada más se anima. Con `prefers-reduced-motion` se quita todo.
 
 ## Accesibilidad
 
-- El texto sobre cada color de píldora cumple un contraste de 4.5:1 como mínimo. Si una etiqueta de acento no lo cumple, se usa blanco o `--ink`.
-- Las alertas nunca dependen solo del color: siempre llevan texto.
-- El foco visible es un anillo de 3px `--ink`, con 2px de separación.
-- Las áreas táctiles miden como mínimo 44×44px.
+- Todo texto cumple 4.5:1 y los bordes de campos y botones cumplen 3:1.
+- Las alertas y estados nunca dependen solo del color: "Toca ahora" lleva pincelada y fondo distinto, y "hecho" lleva "✓".
+- Foco visible: anillo azul de 3px con 2px de separación.
+- Áreas táctiles de 44×44px como mínimo.
 
 ## No hacer
 
-- No usar `--alert` como color de una píldora.
-- No poner más de 6 colores de píldora.
-- No meter tablas anchas: en celular todo va en filas, barras o píldoras.
-- No mezclar familias tipográficas.
-- No usar sombras grandes ni degradados en las tarjetas.
+- No usar azul en texto chico sobre negro.
+- No poner la pincelada en más de un paso a la vez: marca solo lo que toca.
+- No usar `--alert` fuera de alertas.
+- No poner mayúsculas fuera de los títulos.
+- No mezclar otras familias tipográficas.
+- No modificar ni redibujar el logo.
 - No mostrar datos ni alertas de ejemplo: solo lo real.

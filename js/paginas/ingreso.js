@@ -48,7 +48,7 @@
     }
 
     pantalla.replaceChildren(h('div', { class: 'ingreso-caja' },
-      h('p', { class: 'logo' }, 'santo'),
+      h('p', { class: 'logo' }, h('img', { src: 'assets/logo-santo.png', alt: 'Santo · culto al sandwich', width: 377, height: 428 })),
       h('h1', { class: 'titulo' }, 'Hola'),
       h('p', { class: 'texto-suave' }, 'Escribe tu PIN personal de 6 números. Este celular queda reconocido por 30 días.'),
       Api.modoDemo() && h('p', { class: 'nota' }, 'Modo demo: 111111 entra como admin y 222222 como cocina.'),
