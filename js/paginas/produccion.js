@@ -10,6 +10,15 @@
 
   // ---------- Producción: lo que se usó (resta) y lo que salió (suma) ----------
 
+  // Lo comprado que NO se usa en Producción: llega listo y se descuenta directo con las ventas (receta).
+  // Para sacar o volver a poner algo, agrega o quita su categoría o su id aquí.
+  const NO_VAN_EN_PRODUCCION = {
+    categorias: ['Panes'],
+    ids: ['ins-palta', 'ins-tomate', 'ins-paria', 'prod-274def5e' /* aderezo de pavo */]
+  };
+  const seUsaEnProduccion = (i) => seCompra(i) && seCuenta(i) &&
+    NO_VAN_EN_PRODUCCION.categorias.indexOf(i.categoria) < 0 && NO_VAN_EN_PRODUCCION.ids.indexOf(i.id) < 0;
+
 
   function vistaProduccion(main) {
     const zona = h('div', { class: 'hoy' }, esqueletoFilas(6));
@@ -87,7 +96,7 @@
 
     const btnUsado = h('button', {
       type: 'button', class: 'btn btn-secundario btn-ancho',
-      onclick: () => elegirProducto('¿Qué usaste?', datos.insumos.filter((i) => seCompra(i) && seCuenta(i)), (i) => agregar(listaUsados, usados, i))
+      onclick: () => elegirProducto('¿Qué usaste?', datos.insumos.filter(seUsaEnProduccion), (i) => agregar(listaUsados, usados, i))
     }, '+ Agregar lo que usé');
     const btnSalida = h('button', {
       type: 'button', class: 'btn btn-secundario btn-ancho',
